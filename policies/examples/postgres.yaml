@@ -1,0 +1,136 @@
+# Kvlar Policy — Postgres MCP Server
+#
+# Designed for use with @modelcontextprotocol/server-postgres and similar
+# database MCP servers. The postgres MCP server exposes a single tool:
+#   query(sql: string)
+#
+# Even though some servers run in READ ONLY mode by default, this policy
+# provides defense-in-depth for any postgres/database MCP server:
+#   - DENY: destructive DDL/DCL (DROP, TRUNCATE, ALTER, GRANT, REVOKE)
+#   - REQUIRE APPROVAL: write DML/DDL (DELETE, UPDATE, INSERT, CREATE)
+#   - ALLOW: read queries (SELECT) and everything else
+#
+# Usage:
+#   kvlar proxy --stdio --policy policies/examples/postgres.yaml \
+#     -- npx -y @modelcontextprotocol/server-postgres postgresql://localhost/mydb
+
+name: postgres
+description: Security policy for postgres MCP server — block destructive SQL, gate writes, allow reads
+version: "1.0"
+
+rules:
+  # --- DENY: Destructive DDL/DCL operations ---
+
+  - id: deny-drop
+    description: Block DROP statements (tables, indexes, databases, etc.)
+    match_on:
+      resources: ["query"]
+      parameters:
+        sql: "(?i)\\bDROP\\b"
+    effect:
+      type: deny
+      reason: "DROP statements are blocked by Kvlar security policy"
+
+  - id: deny-truncate
+    description: Block TRUNCATE statements (irreversible data removal)
+    match_on:
+      resources: ["query"]
+      parameters:
+        sql: "(?i)\\bTRUNCATE\\b"
+    effect:
+      type: deny
+      reason: "TRUNCATE statements are blocked by Kvlar security policy"
+
+  - id: deny-alter
+    description: Block ALTER statements (schema modification)
+    match_on:
+      resources: ["query"]
+      parameters:
+        sql: "(?i)\\bALTER\\b"
+    effect:
+      type: deny
+      reason: "ALTER statements are blocked by Kvlar security policy"
+
+  - id: deny-grant
+    description: Block GRANT statements (privilege escalation)
+    match_on:
+      resources: ["query"]
+      parameters:
+        sql: "(?i)\\bGRANT\\b"
+    effect:
+      type: deny
+      reason: "GRANT statements are blocked by Kvlar security policy"
+
+  - id: deny-revoke
+    description: Block REVOKE statements (privilege modification)
+    match_on:
+      resources: ["query"]
+      parameters:
+        sql: "(?i)\\bREVOKE\\b"
+    effect:
+      type: deny
+      reason: "REVOKE statements are blocked by Kvlar security policy"
+
+  # --- REQUIRE APPROVAL: Write operations ---
+
+  - id: approve-delete
+    description: Require approval for DELETE statements
+    match_on:
+      resources: ["query"]
+      parameters:
+        sql: "(?i)\\bDELETE\\b"
+    effect:
+      type: require_approval
+      reason: "DELETE queries require human approval"
+
+  - id: approve-update
+    description: Require approval for UPDATE statements
+    match_on:
+      resources: ["query"]
+      parameters:
+        sql: "(?i)\\bUPDATE\\b"
+    effect:
+      type: require_approval
+      reason: "UPDATE queries require human approval"
+
+  - id: approve-insert
+    description: Require approval for INSERT statements
+    match_on:
+      resources: ["query"]
+      parameters:
+        sql: "(?i)\\bINSERT\\b"
+    effect:
+      type: require_approval
+      reason: "INSERT queries require human approval"
+
+  - id: approve-create
+    description: Require approval for CREATE statements (tables, indexes, etc.)
+    match_on:
+      resources: ["query"]
+      parameters:
+        sql: "(?i)\\bCREATE\\b"
+    effect:
+      type: require_approval
+      reason: "CREATE statements require human approval"
+
+  # --- ALLOW: Read operations ---
+
+  - id: allow-select
+    description: Allow SELECT queries (read-only)
+    match_on:
+      resources: ["query"]
+      parameters:
+        sql: "(?i)\\bSELECT\\b"
+    effect:
+      type: allow
+
+  # --- ALLOW: Fallback for other query tool invocations ---
+  # Queries that don't match any keyword above (e.g., EXPLAIN, SHOW, SET)
+  # are allowed. The fail-closed default will deny unknown tools.
+
+  - id: allow-other-queries
+    description: Allow other read-safe queries (EXPLAIN, SHOW, etc.)
+    match_on:
+      resources: ["query"]
+    effect:
+      type: allow

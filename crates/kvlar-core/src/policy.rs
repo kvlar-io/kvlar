@@ -15,6 +15,14 @@ pub struct Policy {
     /// Version of this policy (for tracking changes).
     pub version: String,
 
+    /// Optional list of base policies to extend.
+    /// Base policy rules are appended after this policy's rules,
+    /// so this policy's rules take priority (first-match wins).
+    /// Values can be built-in names ("postgres", "github", "slack", "shell",
+    /// "default", "strict", "permissive", "filesystem") or file paths.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extends: Vec<String>,
+
     /// The rules in this policy, evaluated in order.
     pub rules: Vec<Rule>,
 }
@@ -121,6 +129,35 @@ impl Policy {
         Ok(policy)
     }
 
+    /// Resolves the `extends` directive by loading base policies and merging rules.
+    ///
+    /// This policy's rules come first (higher priority), followed by each base
+    /// policy's rules in the order they appear in `extends`. Since the engine
+    /// uses first-match evaluation, this policy's rules override base rules.
+    ///
+    /// `resolve_fn` is called for each extends entry to load the base policy YAML.
+    /// It receives the extends value (a built-in name or file path) and should
+    /// return the YAML content, or an error if not found.
+    pub fn resolve_extends(
+        &mut self,
+        resolve_fn: &dyn Fn(&str) -> Result<String, crate::error::KvlarError>,
+    ) -> Result<(), crate::error::KvlarError> {
+        if self.extends.is_empty() {
+            return Ok(());
+        }
+
+        let extends = std::mem::take(&mut self.extends);
+        for base_name in &extends {
+            let base_yaml = resolve_fn(base_name)?;
+            let mut base_policy = Policy::from_yaml(&base_yaml)?;
+            // Recursively resolve nested extends
+            base_policy.resolve_extends(resolve_fn)?;
+            // Append base rules after this policy's rules
+            self.rules.append(&mut base_policy.rules);
+        }
+        Ok(())
+    }
+
     /// Serializes this policy to a YAML string.
     pub fn to_yaml(&self) -> Result<String, crate::error::KvlarError> {
         let yaml = serde_yaml::to_string(self)?;
@@ -209,6 +246,7 @@ rules:
             name: "roundtrip".into(),
             description: "Test roundtrip".into(),
             version: "1.0".into(),
+            extends: vec![],
             rules: vec![],
         };
         let yaml = policy.to_yaml().unwrap();
@@ -287,5 +325,145 @@ rules: []
     fn test_policy_from_file_not_found() {
         let result = Policy::from_file(std::path::Path::new("/nonexistent/policy.yaml"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extends_merges_rules() {
+        let base_yaml = r#"
+name: base
+description: Base policy
+version: "1.0"
+rules:
+  - id: base-deny
+    description: Base deny rule
+    match_on:
+      resources: ["dangerous"]
+    effect:
+      type: deny
+      reason: "Blocked by base"
+"#;
+
+        let mut policy = Policy::from_yaml(
+            r#"
+name: child
+description: Child policy
+version: "1.0"
+extends:
+  - base
+rules:
+  - id: child-allow
+    description: Child allow rule
+    match_on:
+      resources: ["safe"]
+    effect:
+      type: allow
+"#,
+        )
+        .unwrap();
+
+        policy
+            .resolve_extends(&|name| {
+                if name == "base" {
+                    Ok(base_yaml.to_string())
+                } else {
+                    Err(crate::error::KvlarError::PolicyParse(format!(
+                        "unknown: {}",
+                        name
+                    )))
+                }
+            })
+            .unwrap();
+
+        // Child rules first, then base rules
+        assert_eq!(policy.rules.len(), 2);
+        assert_eq!(policy.rules[0].id, "child-allow");
+        assert_eq!(policy.rules[1].id, "base-deny");
+        // extends should be cleared after resolution
+        assert!(policy.extends.is_empty());
+    }
+
+    #[test]
+    fn test_extends_empty_is_noop() {
+        let mut policy = Policy::from_yaml(
+            r#"
+name: standalone
+description: No extends
+version: "1.0"
+rules:
+  - id: my-rule
+    description: A rule
+    match_on:
+      resources: ["*"]
+    effect:
+      type: allow
+"#,
+        )
+        .unwrap();
+
+        policy
+            .resolve_extends(&|_| panic!("should not be called"))
+            .unwrap();
+        assert_eq!(policy.rules.len(), 1);
+    }
+
+    #[test]
+    fn test_extends_multiple_bases() {
+        let mut policy = Policy::from_yaml(
+            r#"
+name: multi
+description: Extends two bases
+version: "1.0"
+extends:
+  - alpha
+  - beta
+rules:
+  - id: my-rule
+    description: My rule
+    match_on:
+      resources: ["mine"]
+    effect:
+      type: allow
+"#,
+        )
+        .unwrap();
+
+        policy
+            .resolve_extends(&|name| {
+                let yaml = format!(
+                    r#"
+name: {name}
+description: Base {name}
+version: "1.0"
+rules:
+  - id: {name}-rule
+    description: Rule from {name}
+    match_on:
+      resources: ["{name}"]
+    effect:
+      type: deny
+      reason: "From {name}"
+"#
+                );
+                Ok(yaml)
+            })
+            .unwrap();
+
+        assert_eq!(policy.rules.len(), 3);
+        assert_eq!(policy.rules[0].id, "my-rule");
+        assert_eq!(policy.rules[1].id, "alpha-rule");
+        assert_eq!(policy.rules[2].id, "beta-rule");
+    }
+
+    #[test]
+    fn test_extends_serialization_skips_empty() {
+        let policy = Policy {
+            name: "test".into(),
+            description: "Test".into(),
+            version: "1.0".into(),
+            extends: vec![],
+            rules: vec![],
+        };
+        let yaml = policy.to_yaml().unwrap();
+        assert!(!yaml.contains("extends"));
     }
 }

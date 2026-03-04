@@ -1,0 +1,79 @@
+# Test suite for slack.yaml policy
+#
+# Run: kvlar test -f policies/examples/slack.test.yaml
+#   or: kvlar test -f policies/examples/slack.test.yaml --verbose
+
+policy: "slack.yaml"
+
+tests:
+  # --- ALLOW: Read-only operations ---
+
+  - id: allow-list-channels
+    description: Listing channels should be allowed
+    action:
+      resource: slack_list_channels
+    expect: allow
+    rule: allow-list-channels
+
+  - id: allow-get-channel-history
+    description: Reading channel history should be allowed
+    action:
+      resource: slack_get_channel_history
+    expect: allow
+    rule: allow-read-history
+
+  - id: allow-get-thread-replies
+    description: Reading thread replies should be allowed
+    action:
+      resource: slack_get_thread_replies
+    expect: allow
+    rule: allow-read-threads
+
+  - id: allow-get-users
+    description: Listing users should be allowed
+    action:
+      resource: slack_get_users
+    expect: allow
+    rule: allow-list-users
+
+  - id: allow-get-user-profile
+    description: Viewing user profiles should be allowed
+    action:
+      resource: slack_get_user_profile
+    expect: allow
+    rule: allow-user-profile
+
+  # --- ALLOW: Low-risk write operations ---
+
+  - id: allow-add-reaction
+    description: Adding emoji reactions should be allowed
+    action:
+      resource: slack_add_reaction
+    expect: allow
+    rule: allow-add-reaction
+
+  # --- REQUIRE APPROVAL: Message-sending operations ---
+
+  - id: approve-post-message
+    description: Posting messages should require approval
+    action:
+      resource: slack_post_message
+    expect: require_approval
+    rule: approve-post-message
+    reason_contains: "human approval"
+
+  - id: approve-reply-to-thread
+    description: Replying to threads should require approval
+    action:
+      resource: slack_reply_to_thread
+    expect: require_approval
+    rule: approve-reply-to-thread
+    reason_contains: "human approval"
+
+  # --- DEFAULT DENY: Unknown tools ---
+
+  - id: deny-unknown-tool
+    description: Unknown Slack tools should be denied (fail-closed)
+    action:
+      resource: slack_unknown_action
+    expect: deny

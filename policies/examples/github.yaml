@@ -1,0 +1,122 @@
+# Kvlar Security Policy — GitHub MCP Server
+#
+# Designed for use with @modelcontextprotocol/server-github.
+# Covers all 26 tools exposed by the GitHub MCP server:
+#   - ALLOW: read-only operations (get_*, list_*, search_*)
+#   - ALLOW: moderate write operations (issues, branches, reviews)
+#   - REQUIRE APPROVAL: code changes (push, file edits, PRs, merges)
+#   - DENY: repo creation and forking (high-risk structural changes)
+#
+# Usage:
+#   kvlar proxy --stdio --policy policies/examples/github.yaml \
+#     -- npx -y @modelcontextprotocol/server-github
+
+name: github
+description: Security policy for GitHub MCP server — read/write/create controls
+version: "1.0"
+
+rules:
+  # --- DENY: High-risk structural operations ---
+
+  - id: deny-create-repo
+    description: Block creating new repositories
+    match_on:
+      resources: ["create_repository"]
+    effect:
+      type: deny
+      reason: "Creating repositories is blocked by Kvlar security policy"
+
+  - id: deny-fork-repo
+    description: Block forking repositories
+    match_on:
+      resources: ["fork_repository"]
+    effect:
+      type: deny
+      reason: "Forking repositories is blocked by Kvlar security policy"
+
+  # --- REQUIRE APPROVAL: Code change operations ---
+
+  - id: approve-push-files
+    description: Require approval before pushing files
+    match_on:
+      resources: ["push_files"]
+    effect:
+      type: require_approval
+      reason: "Pushing files requires human approval"
+
+  - id: approve-create-update-file
+    description: Require approval before creating or updating file contents
+    match_on:
+      resources: ["create_or_update_file"]
+    effect:
+      type: require_approval
+      reason: "Creating or updating file contents requires human approval"
+
+  - id: approve-merge-pr
+    description: Require approval before merging pull requests
+    match_on:
+      resources: ["merge_pull_request"]
+    effect:
+      type: require_approval
+      reason: "Merging pull requests requires human approval"
+
+  - id: approve-create-pr
+    description: Require approval before creating pull requests
+    match_on:
+      resources: ["create_pull_request"]
+    effect:
+      type: require_approval
+      reason: "Creating pull requests requires human approval"
+
+  # --- ALLOW: Read-only operations (using glob patterns) ---
+
+  - id: allow-get
+    description: Allow all get operations (get_file_contents, get_issue, get_pull_request, etc.)
+    match_on:
+      resources: ["get_*"]
+    effect:
+      type: allow
+
+  - id: allow-list
+    description: Allow all list operations (list_issues, list_pull_requests, list_commits)
+    match_on:
+      resources: ["list_*"]
+    effect:
+      type: allow
+
+  - id: allow-search
+    description: Allow all search operations (search_repositories, search_code, search_issues, search_users)
+    match_on:
+      resources: ["search_*"]
+    effect:
+      type: allow
+
+  # --- ALLOW: Moderate write operations ---
+
+  - id: allow-issues
+    description: Allow creating and updating issues and comments
+    match_on:
+      resources: ["create_issue", "update_issue", "add_issue_comment"]
+    effect:
+      type: allow
+
+  - id: allow-branch
+    description: Allow creating branches
+    match_on:
+      resources: ["create_branch"]
+    effect:
+      type: allow
+
+  - id: allow-pr-review
+    description: Allow creating pull request reviews
+    match_on:
+      resources: ["create_pull_request_review"]
+    effect:
+      type: allow
+
+  - id: allow-update-pr-branch
+    description: Allow updating pull request branches (e.g., rebase/merge from base)
+    match_on:
+      resources: ["update_pull_request_branch"]
+    effect:
+      type: allow

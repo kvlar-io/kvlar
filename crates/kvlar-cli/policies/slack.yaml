@@ -1,0 +1,85 @@
+# Kvlar Security Policy — Slack MCP Server
+#
+# Designed for use with @modelcontextprotocol/server-slack.
+# Demonstrates Kvlar's enforcement modes for messaging tools:
+#   - ALLOW: read-only operations (listing channels, reading history, viewing profiles)
+#   - ALLOW: low-risk writes (adding emoji reactions)
+#   - REQUIRE APPROVAL: message-sending operations (posting and replying)
+#
+# The Slack MCP server exposes 8 tools:
+#   Read-only:  slack_list_channels, slack_get_channel_history,
+#               slack_get_thread_replies, slack_get_users, slack_get_user_profile
+#   Write:      slack_post_message, slack_reply_to_thread, slack_add_reaction
+#
+# Usage:
+#   kvlar proxy --stdio --policy policies/examples/slack.yaml \
+#     -- npx -y @modelcontextprotocol/server-slack
+
+name: slack
+description: Security policy for Slack MCP server — protect against unintended messages
+version: "1.0"
+
+rules:
+  # --- REQUIRE APPROVAL: Message-sending operations ---
+
+  - id: approve-post-message
+    description: Require approval before posting new messages to channels
+    match_on:
+      resources: ["slack_post_message"]
+    effect:
+      type: require_approval
+      reason: "Posting messages to Slack requires human approval — messages are visible to the entire channel"
+
+  - id: approve-reply-to-thread
+    description: Require approval before replying to threads
+    match_on:
+      resources: ["slack_reply_to_thread"]
+    effect:
+      type: require_approval
+      reason: "Replying to Slack threads requires human approval — replies are visible to thread participants"
+
+  # --- ALLOW: Low-risk write operations ---
+
+  - id: allow-add-reaction
+    description: Allow adding emoji reactions (low risk, easily reversible)
+    match_on:
+      resources: ["slack_add_reaction"]
+    effect:
+      type: allow
+
+  # --- ALLOW: Read-only operations ---
+
+  - id: allow-list-channels
+    description: Allow listing workspace channels
+    match_on:
+      resources: ["slack_list_channels"]
+    effect:
+      type: allow
+
+  - id: allow-read-history
+    description: Allow reading channel message history
+    match_on:
+      resources: ["slack_get_channel_history"]
+    effect:
+      type: allow
+
+  - id: allow-read-threads
+    description: Allow reading thread replies
+    match_on:
+      resources: ["slack_get_thread_replies"]
+    effect:
+      type: allow
+
+  - id: allow-list-users
+    description: Allow listing workspace users
+    match_on:
+      resources: ["slack_get_users"]
+    effect:
+      type: allow
+
+  - id: allow-user-profile
+    description: Allow viewing user profiles
+    match_on:
+      resources: ["slack_get_user_profile"]
+    effect:
+      type: allow

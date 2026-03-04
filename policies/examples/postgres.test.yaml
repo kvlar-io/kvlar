@@ -1,0 +1,178 @@
+# Test suite for postgres.yaml policy
+#
+# Run: kvlar test -f policies/examples/postgres.test.yaml
+#   or: kvlar test -f policies/examples/postgres.test.yaml --verbose
+
+policy: "postgres.yaml"
+
+tests:
+  # --- ALLOW: Read operations ---
+
+  - id: allow-select
+    description: Simple SELECT query should be allowed
+    action:
+      resource: query
+      parameters:
+        sql: "SELECT * FROM users"
+    expect: allow
+    rule: allow-select
+
+  - id: allow-select-with-join
+    description: SELECT with JOIN should be allowed
+    action:
+      resource: query
+      parameters:
+        sql: "SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id"
+    expect: allow
+    rule: allow-select
+
+  - id: allow-select-case-insensitive
+    description: Lowercase select should be allowed
+    action:
+      resource: query
+      parameters:
+        sql: "select id, name from products where price > 10"
+    expect: allow
+    rule: allow-select
+
+  - id: allow-explain
+    description: EXPLAIN queries should be allowed
+    action:
+      resource: query
+      parameters:
+        sql: "EXPLAIN ANALYZE SELECT * FROM users"
+    expect: allow
+    rule: allow-select
+
+  # --- DENY: Destructive DDL/DCL ---
+
+  - id: deny-drop-table
+    description: DROP TABLE should be denied
+    action:
+      resource: query
+      parameters:
+        sql: "DROP TABLE users"
+    expect: deny
+    rule: deny-drop
+    reason_contains: "DROP statements are blocked"
+
+  - id: deny-drop-database
+    description: DROP DATABASE should be denied
+    action:
+      resource: query
+      parameters:
+        sql: "DROP DATABASE production"
+    expect: deny
+    rule: deny-drop
+    reason_contains: "DROP statements are blocked"
+
+  - id: deny-drop-case-insensitive
+    description: Lowercase drop should be denied
+    action:
+      resource: query
+      parameters:
+        sql: "drop table if exists sessions"
+    expect: deny
+    rule: deny-drop
+
+  - id: deny-truncate
+    description: TRUNCATE should be denied
+    action:
+      resource: query
+      parameters:
+        sql: "TRUNCATE TABLE logs"
+    expect: deny
+    rule: deny-truncate
+    reason_contains: "TRUNCATE statements are blocked"
+
+  - id: deny-alter-table
+    description: ALTER TABLE should be denied
+    action:
+      resource: query
+      parameters:
+        sql: "ALTER TABLE users ADD COLUMN email VARCHAR(255)"
+    expect: deny
+    rule: deny-alter
+    reason_contains: "ALTER statements are blocked"
+
+  - id: deny-grant
+    description: GRANT should be denied
+    action:
+      resource: query
+      parameters:
+        sql: "GRANT ALL PRIVILEGES ON users TO admin"
+    expect: deny
+    rule: deny-grant
+    reason_contains: "GRANT statements are blocked"
+
+  - id: deny-revoke
+    description: REVOKE should be denied
+    action:
+      resource: query
+      parameters:
+        sql: "REVOKE SELECT ON users FROM readonly_user"
+    expect: deny
+    rule: deny-revoke
+    reason_contains: "REVOKE statements are blocked"
+
+  # --- REQUIRE APPROVAL: Write operations ---
+
+  - id: approve-delete
+    description: DELETE should require approval
+    action:
+      resource: query
+      parameters:
+        sql: "DELETE FROM sessions WHERE expired_at < NOW()"
+    expect: require_approval
+    rule: approve-delete
+    reason_contains: "human approval"
+
+  - id: approve-insert
+    description: INSERT should require approval
+    action:
+      resource: query
+      parameters:
+        sql: "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')"
+    expect: require_approval
+    rule: approve-insert
+    reason_contains: "human approval"
+
+  - id: approve-update
+    description: UPDATE should require approval
+    action:
+      resource: query
+      parameters:
+        sql: "UPDATE users SET active = false WHERE last_login < '2025-01-01'"
+    expect: require_approval
+    rule: approve-update
+    reason_contains: "human approval"
+
+  - id: approve-create-table
+    description: CREATE TABLE should require approval
+    action:
+      resource: query
+      parameters:
+        sql: "CREATE TABLE audit_log (id SERIAL PRIMARY KEY, event TEXT)"
+    expect: require_approval
+    rule: approve-create
+    reason_contains: "human approval"
+
+  - id: approve-create-index
+    description: CREATE INDEX should require approval
+    action:
+      resource: query
+      parameters:
+        sql: "CREATE INDEX idx_users_email ON users (email)"
+    expect: require_approval
+    rule: approve-create
+    reason_contains: "human approval"
+
+  # --- DEFAULT DENY: Unknown tools ---
+
+  - id: deny-unknown-tool
+    description: Unknown tools should be denied (fail-closed)
+    action:
+      resource: execute
+      parameters:
+        command: "rm -rf /"
+    expect: deny

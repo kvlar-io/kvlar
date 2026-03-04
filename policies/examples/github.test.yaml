@@ -1,0 +1,211 @@
+# Test suite for github.yaml policy
+#
+# Run: kvlar test -f policies/examples/github.test.yaml
+#   or: kvlar test -f policies/examples/github.test.yaml --verbose
+
+policy: "github.yaml"
+
+tests:
+  # --- ALLOW: Read-only operations (glob: get_*, list_*, search_*) ---
+
+  - id: allow-get-file-contents
+    description: Reading file contents should be allowed
+    action:
+      resource: get_file_contents
+    expect: allow
+    rule: allow-get
+
+  - id: allow-get-issue
+    description: Getting issue details should be allowed
+    action:
+      resource: get_issue
+    expect: allow
+    rule: allow-get
+
+  - id: allow-get-pull-request
+    description: Getting pull request details should be allowed
+    action:
+      resource: get_pull_request
+    expect: allow
+    rule: allow-get
+
+  - id: allow-get-pull-request-files
+    description: Getting pull request files should be allowed
+    action:
+      resource: get_pull_request_files
+    expect: allow
+    rule: allow-get
+
+  - id: allow-get-pull-request-status
+    description: Getting pull request status should be allowed
+    action:
+      resource: get_pull_request_status
+    expect: allow
+    rule: allow-get
+
+  - id: allow-get-pull-request-comments
+    description: Getting pull request comments should be allowed
+    action:
+      resource: get_pull_request_comments
+    expect: allow
+    rule: allow-get
+
+  - id: allow-get-pull-request-reviews
+    description: Getting pull request reviews should be allowed
+    action:
+      resource: get_pull_request_reviews
+    expect: allow
+    rule: allow-get
+
+  - id: allow-list-issues
+    description: Listing issues should be allowed
+    action:
+      resource: list_issues
+    expect: allow
+    rule: allow-list
+
+  - id: allow-list-pull-requests
+    description: Listing pull requests should be allowed
+    action:
+      resource: list_pull_requests
+    expect: allow
+    rule: allow-list
+
+  - id: allow-list-commits
+    description: Listing commits should be allowed
+    action:
+      resource: list_commits
+    expect: allow
+    rule: allow-list
+
+  - id: allow-search-code
+    description: Searching code should be allowed
+    action:
+      resource: search_code
+    expect: allow
+    rule: allow-search
+
+  - id: allow-search-repositories
+    description: Searching repositories should be allowed
+    action:
+      resource: search_repositories
+    expect: allow
+    rule: allow-search
+
+  - id: allow-search-issues
+    description: Searching issues should be allowed
+    action:
+      resource: search_issues
+    expect: allow
+    rule: allow-search
+
+  - id: allow-search-users
+    description: Searching users should be allowed
+    action:
+      resource: search_users
+    expect: allow
+    rule: allow-search
+
+  # --- DENY: High-risk structural operations ---
+
+  - id: deny-create-repository
+    description: Creating repositories should be denied
+    action:
+      resource: create_repository
+    expect: deny
+    rule: deny-create-repo
+    reason_contains: "Creating repositories is blocked"
+
+  - id: deny-fork-repository
+    description: Forking repositories should be denied
+    action:
+      resource: fork_repository
+    expect: deny
+    rule: deny-fork-repo
+    reason_contains: "Forking repositories is blocked"
+
+  # --- REQUIRE APPROVAL: Code change operations ---
+
+  - id: approve-push-files
+    description: Pushing files should require approval
+    action:
+      resource: push_files
+    expect: require_approval
+    rule: approve-push-files
+    reason_contains: "human approval"
+
+  - id: approve-create-or-update-file
+    description: Creating or updating file contents should require approval
+    action:
+      resource: create_or_update_file
+    expect: require_approval
+    rule: approve-create-update-file
+    reason_contains: "human approval"
+
+  - id: approve-merge-pull-request
+    description: Merging pull requests should require approval
+    action:
+      resource: merge_pull_request
+    expect: require_approval
+    rule: approve-merge-pr
+    reason_contains: "human approval"
+
+  - id: approve-create-pull-request
+    description: Creating pull requests should require approval
+    action:
+      resource: create_pull_request
+    expect: require_approval
+    rule: approve-create-pr
+    reason_contains: "human approval"
+
+  # --- ALLOW: Moderate write operations ---
+
+  - id: allow-create-issue
+    description: Creating issues should be allowed
+    action:
+      resource: create_issue
+    expect: allow
+    rule: allow-issues
+
+  - id: allow-update-issue
+    description: Updating issues should be allowed
+    action:
+      resource: update_issue
+    expect: allow
+    rule: allow-issues
+
+  - id: allow-add-issue-comment
+    description: Adding issue comments should be allowed
+    action:
+      resource: add_issue_comment
+    expect: allow
+    rule: allow-issues
+
+  - id: allow-create-branch
+    description: Creating branches should be allowed
+    action:
+      resource: create_branch
+    expect: allow
+    rule: allow-branch
+
+  - id: allow-create-pr-review
+    description: Creating pull request reviews should be allowed
+    action:
+      resource: create_pull_request_review
+    expect: allow
+    rule: allow-pr-review
+
+  - id: allow-update-pr-branch
+    description: Updating pull request branches should be allowed
+    action:
+      resource: update_pull_request_branch
+    expect: allow
+    rule: allow-update-pr-branch
+
+  # --- DEFAULT DENY: Unknown tools ---
+
+  - id: deny-unknown-tool
+    description: Unknown tools should be denied (fail-closed)
+    action:
+      resource: some_unknown_tool
+    expect: deny

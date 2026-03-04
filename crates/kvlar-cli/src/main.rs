@@ -99,7 +99,8 @@ enum Commands {
         #[arg(short, long)]
         dir: Option<PathBuf>,
 
-        /// Policy template: default, strict, permissive, filesystem.
+        /// Policy template: default, strict, permissive, filesystem,
+        /// postgres, github, slack, shell.
         #[arg(long, default_value = "default")]
         template: String,
     },
@@ -245,7 +246,8 @@ fn cmd_validate(policy_path: &std::path::Path) {
         }
     } else {
         match kvlar_core::Policy::from_file(policy_path) {
-            Ok(policy) => {
+            Ok(mut policy) => {
+                resolve_policy_extends(&mut policy);
                 println!("✓ Policy '{}' is valid", policy.name);
                 println!("  Version: {}", policy.version);
                 println!("  Rules: {}", policy.rules.len());
@@ -259,13 +261,14 @@ fn cmd_validate(policy_path: &std::path::Path) {
 }
 
 fn cmd_evaluate(policy_path: &std::path::Path, action_type: &str, resource: &str, agent_id: &str) {
-    let policy = match kvlar_core::Policy::from_file(policy_path) {
+    let mut policy = match kvlar_core::Policy::from_file(policy_path) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("✗ Failed to load policy: {}", e);
             process::exit(1);
         }
     };
+    resolve_policy_extends(&mut policy);
 
     let mut engine = kvlar_core::Engine::new();
     engine.load_policy(policy);
@@ -295,13 +298,14 @@ fn cmd_evaluate(policy_path: &std::path::Path, action_type: &str, resource: &str
 }
 
 fn cmd_inspect(policy_path: &std::path::Path) {
-    let policy = match kvlar_core::Policy::from_file(policy_path) {
+    let mut policy = match kvlar_core::Policy::from_file(policy_path) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("✗ Invalid policy: {}", e);
             process::exit(1);
         }
     };
+    resolve_policy_extends(&mut policy);
 
     println!("Policy: {}", policy.name);
     println!("Description: {}", policy.description);
@@ -405,7 +409,8 @@ fn cmd_proxy(
     for path_str in &config.policy_paths {
         let path = std::path::Path::new(path_str);
         match kvlar_core::Policy::from_file(path) {
-            Ok(policy) => {
+            Ok(mut policy) => {
+                resolve_policy_extends(&mut policy);
                 eprintln!(
                     "  Loaded policy '{}' ({} rules)",
                     policy.name,
@@ -477,7 +482,51 @@ fn policy_template(name: &str) -> Option<&'static str> {
         "strict" => Some(include_str!("../policies/strict.yaml")),
         "permissive" => Some(include_str!("../policies/permissive.yaml")),
         "filesystem" => Some(include_str!("../policies/filesystem-demo.yaml")),
+        "postgres" => Some(include_str!("../policies/postgres.yaml")),
+        "github" => Some(include_str!("../policies/github.yaml")),
+        "slack" => Some(include_str!("../policies/slack.yaml")),
+        "shell" => Some(include_str!("../policies/shell.yaml")),
         _ => None,
+    }
+}
+
+/// Returns all available built-in template names.
+pub fn template_names() -> &'static [&'static str] {
+    &[
+        "default",
+        "strict",
+        "permissive",
+        "filesystem",
+        "postgres",
+        "github",
+        "slack",
+        "shell",
+    ]
+}
+
+/// Resolves `extends` directives in a policy.
+/// Looks up built-in templates first, then tries file paths.
+fn resolve_policy_extends(policy: &mut kvlar_core::Policy) {
+    if let Err(e) = policy.resolve_extends(&|name| {
+        // Try built-in template first
+        if let Some(yaml) = policy_template(name) {
+            return Ok(yaml.to_string());
+        }
+        // Try as file path
+        let path = std::path::Path::new(name);
+        if path.exists() {
+            return std::fs::read_to_string(path).map_err(|e| {
+                kvlar_core::KvlarError::PolicyParse(format!("failed to read {}: {}", name, e))
+            });
+        }
+        Err(kvlar_core::KvlarError::PolicyParse(format!(
+            "unknown policy '{}' in extends — not a built-in template ({}) and not a file path",
+            name,
+            template_names().join(", ")
+        )))
+    }) {
+        eprintln!("✗ Failed to resolve policy extends: {}", e);
+        process::exit(1);
     }
 }
 
@@ -490,8 +539,9 @@ fn cmd_init(dir: Option<PathBuf>, template: &str) {
         Some(c) => c,
         None => {
             eprintln!(
-                "✗ Unknown template '{}'. Available: default, strict, permissive, filesystem",
-                template
+                "✗ Unknown template '{}'. Available: {}",
+                template,
+                template_names().join(", ")
             );
             process::exit(1);
         }
@@ -844,13 +894,14 @@ fn cmd_test(
     };
 
     // Load policy
-    let policy = match kvlar_core::Policy::from_file(&policy_path) {
+    let mut policy = match kvlar_core::Policy::from_file(&policy_path) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("✗ Failed to load policy {}: {}", policy_path.display(), e);
             process::exit(1);
         }
     };
+    resolve_policy_extends(&mut policy);
 
     // Build engine and run suite
     let mut engine = kvlar_core::Engine::new();
