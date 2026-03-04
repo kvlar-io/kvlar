@@ -473,12 +473,10 @@ fn cmd_proxy(
 
 fn policy_template(name: &str) -> Option<&'static str> {
     match name {
-        "default" => Some(include_str!("../../../policies/examples/default.yaml")),
-        "strict" => Some(include_str!("../../../policies/examples/strict.yaml")),
-        "permissive" => Some(include_str!("../../../policies/examples/permissive.yaml")),
-        "filesystem" => Some(include_str!(
-            "../../../policies/examples/filesystem-demo.yaml"
-        )),
+        "default" => Some(include_str!("../policies/default.yaml")),
+        "strict" => Some(include_str!("../policies/strict.yaml")),
+        "permissive" => Some(include_str!("../policies/permissive.yaml")),
+        "filesystem" => Some(include_str!("../policies/filesystem-demo.yaml")),
         _ => None,
     }
 }

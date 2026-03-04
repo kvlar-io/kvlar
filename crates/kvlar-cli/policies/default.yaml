@@ -1,0 +1,91 @@
+# Default Kvlar Security Policy
+#
+# A sensible starting point for securing AI agents.
+# Denies dangerous operations, requires approval for sensitive ones,
+# and allows safe read-only operations.
+
+name: default
+description: Default security policy for AI agents
+version: "1.0"
+
+rules:
+  # --- DENY: Dangerous operations ---
+
+  - id: deny-shell
+    description: Block shell/bash command execution
+    match_on:
+      action_types: ["tool_call"]
+      resources: ["bash", "shell", "exec", "subprocess"]
+    effect:
+      type: deny
+      reason: "Shell command execution is not permitted"
+
+  - id: deny-file-delete
+    description: Block file deletion
+    match_on:
+      action_types: ["tool_call"]
+      resources: ["delete_file", "remove_file", "unlink"]
+    effect:
+      type: deny
+      reason: "File deletion is not permitted"
+
+  - id: deny-network-write
+    description: Block outbound network writes
+    match_on:
+      action_types: ["tool_call"]
+      resources: ["http_post", "http_put", "http_delete"]
+    effect:
+      type: deny
+      reason: "Outbound network writes are not permitted"
+
+  # --- REQUIRE APPROVAL: Sensitive operations ---
+
+  - id: approve-email
+    description: Require approval before sending emails
+    match_on:
+      resources: ["send_email", "smtp"]
+    effect:
+      type: require_approval
+      reason: "Sending emails requires human approval"
+
+  - id: approve-file-write
+    description: Require approval before writing files
+    match_on:
+      action_types: ["tool_call"]
+      resources: ["write_file", "create_file", "append_file"]
+    effect:
+      type: require_approval
+      reason: "Writing files requires human approval"
+
+  - id: approve-database-write
+    description: Require approval for database mutations
+    match_on:
+      resources: ["db_insert", "db_update", "db_delete"]
+    effect:
+      type: require_approval
+      reason: "Database mutations require human approval"
+
+  # --- ALLOW: Safe operations ---
+
+  - id: allow-file-read
+    description: Allow reading files
+    match_on:
+      action_types: ["tool_call"]
+      resources: ["read_file", "list_files", "search_files"]
+    effect:
+      type: allow
+
+  - id: allow-network-read
+    description: Allow fetching data from the network
+    match_on:
+      action_types: ["tool_call"]
+      resources: ["http_get", "fetch"]
+    effect:
+      type: allow
+
+  - id: allow-database-read
+    description: Allow database queries (read-only)
+    match_on:
+      resources: ["db_query", "db_select"]
+    effect:
+      type: allow
