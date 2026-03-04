@@ -1,0 +1,21 @@
+[package]
+name = "kvlar-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core policy engine for Kvlar — evaluates agent actions against security policies"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+schemars = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+regex = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+kvlar-audit = { path = "../kvlar-audit", version = "0.1.0" }

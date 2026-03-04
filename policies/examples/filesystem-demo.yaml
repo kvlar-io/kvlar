@@ -1,0 +1,83 @@
+# Kvlar Demo Policy — Filesystem MCP Server
+#
+# Designed for use with @modelcontextprotocol/server-filesystem.
+# Demonstrates Kvlar's three enforcement modes:
+#   - ALLOW: read-only operations (safe)
+#   - REQUIRE APPROVAL: write operations (sensitive)
+#   - DENY: delete operations (dangerous)
+#
+# Usage:
+#   kvlar proxy --stdio --policy policies/examples/filesystem-demo.yaml \
+#     -- npx -y @modelcontextprotocol/server-filesystem /tmp/kvlar-demo
+
+name: filesystem-demo
+description: Demo policy for MCP filesystem server — read/write/delete controls
+version: "1.0"
+
+rules:
+  # --- DENY: Destructive operations ---
+
+  - id: deny-delete
+    description: Block directory deletion
+    match_on:
+      resources: ["delete_directory"]
+    effect:
+      type: deny
+      reason: "Directory deletion is blocked by Kvlar security policy"
+
+  - id: deny-move
+    description: Block file moves/renames (can be destructive)
+    match_on:
+      resources: ["move_file"]
+    effect:
+      type: deny
+      reason: "File moves are blocked by Kvlar security policy"
+
+  # --- REQUIRE APPROVAL: Write operations ---
+
+  - id: approve-write
+    description: Require approval before writing files
+    match_on:
+      resources: ["write_file"]
+    effect:
+      type: require_approval
+      reason: "File writes require human approval"
+
+  - id: approve-edit
+    description: Require approval before editing files
+    match_on:
+      resources: ["edit_file"]
+    effect:
+      type: require_approval
+      reason: "File edits require human approval"
+
+  - id: approve-mkdir
+    description: Require approval before creating directories
+    match_on:
+      resources: ["create_directory"]
+    effect:
+      type: require_approval
+      reason: "Creating directories requires human approval"
+
+  # --- ALLOW: Read-only operations (using glob patterns) ---
+
+  - id: allow-reads
+    description: Allow all read operations (read_text_file, read_media_file, read_multiple_files)
+    match_on:
+      resources: ["read_*"]
+    effect:
+      type: allow
+
+  - id: allow-list
+    description: Allow listing directories
+    match_on:
+      resources: ["list_*"]
+    effect:
+      type: allow
+
+  - id: allow-browse
+    description: Allow directory tree, search, file info, and allowed dirs queries
+    match_on:
+      resources: ["directory_tree", "search_files", "get_file_info", "list_allowed_directories"]
+    effect:
+      type: allow

@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kvlar-core",
+    "crates/kvlar-proxy",
+    "crates/kvlar-audit",
+    "crates/kvlar-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/kvlar-io/kvlar"
+homepage = "https://kvlar.io"
+description = "Bulletproof security for AI agents"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+thiserror = "2"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+schemars = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+regex = "1"

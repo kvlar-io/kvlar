@@ -1,0 +1,25 @@
+# Permissive Policy
+#
+# Allows most operations. Use for development and testing only.
+# NOT recommended for production.
+
+name: permissive
+description: Development-only permissive policy (allow most, deny destructive)
+version: "1.0"
+
+rules:
+  - id: deny-destructive-shell
+    description: Still block rm -rf and similar
+    match_on:
+      resources: ["bash", "shell"]
+      parameters:
+        command: "rm\\s+(-rf|--force|--recursive)"
+    effect:
+      type: deny
+      reason: "Destructive shell commands are never allowed"
+
+  - id: allow-all
+    description: Allow everything else
+    match_on: {}
+    effect:
+      type: allow

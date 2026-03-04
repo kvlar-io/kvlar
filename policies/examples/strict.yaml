@@ -1,0 +1,64 @@
+# Strict Policy
+#
+# Maximum security. Requires approval for everything except reads.
+# Recommended for production environments with sensitive data.
+
+name: strict
+description: Maximum security — approve or deny everything except reads
+version: "1.0"
+
+rules:
+  # --- DENY: All write and execute operations ---
+
+  - id: deny-shell
+    description: Block all shell access
+    match_on:
+      resources: ["bash", "shell", "exec", "subprocess"]
+    effect:
+      type: deny
+      reason: "Shell access is prohibited in strict mode"
+
+  - id: deny-file-delete
+    description: Block file deletion
+    match_on:
+      resources: ["delete_file", "remove_file", "unlink"]
+    effect:
+      type: deny
+      reason: "File deletion is prohibited in strict mode"
+
+  # --- REQUIRE APPROVAL: Everything that modifies state ---
+
+  - id: approve-all-writes
+    description: Require approval for any write operation
+    match_on:
+      action_types: ["tool_call"]
+      resources:
+        - "write_file"
+        - "create_file"
+        - "append_file"
+        - "send_email"
+        - "http_post"
+        - "http_put"
+        - "http_delete"
+        - "db_insert"
+        - "db_update"
+        - "db_delete"
+    effect:
+      type: require_approval
+      reason: "All write operations require human approval in strict mode"
+
+  # --- ALLOW: Read-only operations ---
+
+  - id: allow-reads
+    description: Allow all read operations
+    match_on:
+      resources:
+        - "read_file"
+        - "list_files"
+        - "search_files"
+        - "http_get"
+        - "fetch"
+        - "db_query"
+        - "db_select"
+    effect:
+      type: allow

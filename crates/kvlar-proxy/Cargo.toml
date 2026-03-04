@@ -1,0 +1,20 @@
+[package]
+name = "kvlar-proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MCP security proxy — intercepts, evaluates, and logs agent tool calls"
+
+[dependencies]
+kvlar-core = { path = "../kvlar-core", version = "0.1.0" }
+kvlar-audit = { path = "../kvlar-audit", version = "0.1.0" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]

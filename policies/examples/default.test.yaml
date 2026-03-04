@@ -1,0 +1,42 @@
+# Test suite for default.yaml policy
+#
+# Run: kvlar test -f policies/examples/default.test.yaml
+
+policy: "default.yaml"
+
+tests:
+  - id: deny-bash
+    description: Shell/bash execution should be denied
+    action:
+      resource: bash
+    expect: deny
+    rule: deny-shell
+    reason_contains: "not permitted"
+
+  - id: deny-file-delete
+    description: File deletion should be denied
+    action:
+      resource: delete_file
+    expect: deny
+    rule: deny-file-delete
+
+  - id: allow-read-file
+    description: Reading files should be allowed
+    action:
+      resource: read_file
+    expect: allow
+    rule: allow-file-read
+
+  - id: approve-email
+    description: Sending emails should require approval
+    action:
+      resource: send_email
+    expect: require_approval
+    rule: approve-email
+    reason_contains: "human approval"
+
+  - id: deny-unknown
+    description: Unknown tools should be denied (fail-closed)
+    action:
+      resource: unknown_dangerous_tool
+    expect: deny

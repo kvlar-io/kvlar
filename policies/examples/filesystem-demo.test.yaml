@@ -1,0 +1,80 @@
+# Test suite for filesystem-demo.yaml policy
+#
+# Run: kvlar test -f policies/examples/filesystem-demo.test.yaml
+#   or: kvlar test -f policies/examples/filesystem-demo.test.yaml --verbose
+
+policy: "filesystem-demo.yaml"
+
+tests:
+  # --- ALLOW: Read operations (glob: read_*) ---
+
+  - id: allow-read-text
+    description: Reading text files should be allowed
+    action:
+      resource: read_text_file
+    expect: allow
+    rule: allow-reads
+
+  - id: allow-read-media
+    description: Reading media files should be allowed
+    action:
+      resource: read_media_file
+    expect: allow
+    rule: allow-reads
+
+  - id: allow-list-directory
+    description: Listing directories should be allowed
+    action:
+      resource: list_directory
+    expect: allow
+    rule: allow-list
+
+  - id: allow-search-files
+    description: Searching files should be allowed
+    action:
+      resource: search_files
+    expect: allow
+    rule: allow-browse
+
+  # --- DENY: Destructive operations ---
+
+  - id: deny-delete-directory
+    description: Deleting directories should be denied
+    action:
+      resource: delete_directory
+    expect: deny
+    rule: deny-delete
+    reason_contains: "deletion is blocked"
+
+  - id: deny-move-file
+    description: Moving files should be denied
+    action:
+      resource: move_file
+    expect: deny
+    rule: deny-move
+    reason_contains: "moves are blocked"
+
+  # --- REQUIRE APPROVAL: Write operations ---
+
+  - id: approve-write-file
+    description: Writing files should require approval
+    action:
+      resource: write_file
+    expect: require_approval
+    rule: approve-write
+    reason_contains: "human approval"
+
+  - id: approve-edit-file
+    description: Editing files should require approval
+    action:
+      resource: edit_file
+    expect: require_approval
+    rule: approve-edit
+
+  # --- DEFAULT DENY: Unknown tools ---
+
+  - id: deny-unknown-tool
+    description: Unknown tools should be denied (fail-closed)
+    action:
+      resource: some_unknown_tool
+    expect: deny
