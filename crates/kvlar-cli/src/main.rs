@@ -114,6 +114,10 @@ enum Commands {
         #[arg(long, value_enum)]
         client: Option<McpClient>,
 
+        /// Path to the MCP client config file (overrides auto-detection).
+        #[arg(long)]
+        config: Option<PathBuf>,
+
         /// Path to the policy file (default: ~/.kvlar/policy.yaml).
         #[arg(long)]
         policy: Option<PathBuf>,
@@ -136,6 +140,10 @@ enum Commands {
         /// Which MCP client to unwrap (auto-detects if omitted).
         #[arg(long, value_enum)]
         client: Option<McpClient>,
+
+        /// Path to the MCP client config file (overrides auto-detection).
+        #[arg(long)]
+        config: Option<PathBuf>,
 
         /// Unwrap only these servers (by name).
         #[arg(long)]
@@ -200,16 +208,18 @@ fn main() {
         Commands::Init { dir, template } => cmd_init(dir, &template),
         Commands::Wrap {
             client,
+            config,
             policy,
             only,
             skip,
             dry_run,
-        } => cmd_wrap(client, policy, only, skip, dry_run),
+        } => cmd_wrap(client, config, policy, only, skip, dry_run),
         Commands::Unwrap {
             client,
+            config,
             only,
             dry_run,
-        } => cmd_unwrap(client, only, dry_run),
+        } => cmd_unwrap(client, config, only, dry_run),
         Commands::Test {
             file,
             policy,
@@ -590,6 +600,7 @@ fn cmd_init(dir: Option<PathBuf>, template: &str) {
 
 fn cmd_wrap(
     client: Option<McpClient>,
+    config: Option<PathBuf>,
     policy: Option<PathBuf>,
     only: Vec<String>,
     skip: Vec<String>,
@@ -621,30 +632,35 @@ fn cmd_wrap(
         }
     };
 
-    // Determine client
-    let client = match client {
-        Some(c) => c,
-        None => match client_config::auto_detect_client() {
+    // Resolve config path: --config overrides client auto-detection
+    let (config_path, client_label) = if let Some(custom_config) = config {
+        let label = custom_config.display().to_string();
+        println!("Using custom config: {}", label);
+        (custom_config, label)
+    } else {
+        // Determine client
+        let client = match client {
             Some(c) => c,
-            None => {
-                eprintln!("✗ No MCP client config found.");
-                eprintln!("  Specify --client (claude-desktop or cursor).");
-                process::exit(1);
-            }
-        },
+            None => match client_config::auto_detect_client() {
+                Some(c) => c,
+                None => {
+                    eprintln!("✗ No MCP client config found.");
+                    eprintln!("  Specify --client (claude-desktop or cursor) or --config <path>.");
+                    process::exit(1);
+                }
+            },
+        };
+
+        let path = client.config_path();
+        let label = client.display_name().to_string();
+        println!("Detected {} config", label);
+        (path, label)
     };
 
-    let config_path = client.config_path();
     if !config_path.exists() {
-        eprintln!(
-            "✗ {} config not found at {}",
-            client.display_name(),
-            config_path.display()
-        );
+        eprintln!("✗ Config not found at {}", config_path.display());
         process::exit(1);
     }
-
-    println!("Detected {} config", client.display_name());
 
     // Read config
     let config_str = match std::fs::read_to_string(&config_path) {
@@ -733,37 +749,40 @@ fn cmd_wrap(
 
     println!(
         "✓ Wrapped {}/{} servers. Restart {} to apply.",
-        wrapped_count,
-        total,
-        client.display_name()
+        wrapped_count, total, client_label
     );
 }
 
-fn cmd_unwrap(client: Option<McpClient>, only: Vec<String>, dry_run: bool) {
-    // Determine client
-    let client = match client {
-        Some(c) => c,
-        None => match client_config::auto_detect_client() {
+fn cmd_unwrap(client: Option<McpClient>, config: Option<PathBuf>, only: Vec<String>, dry_run: bool) {
+    // Resolve config path: --config overrides client auto-detection
+    let (config_path, client_label) = if let Some(custom_config) = config {
+        let label = custom_config.display().to_string();
+        println!("Using custom config: {}", label);
+        (custom_config, label)
+    } else {
+        // Determine client
+        let client = match client {
             Some(c) => c,
-            None => {
-                eprintln!("✗ No MCP client config found.");
-                eprintln!("  Specify --client (claude-desktop or cursor).");
-                process::exit(1);
-            }
-        },
+            None => match client_config::auto_detect_client() {
+                Some(c) => c,
+                None => {
+                    eprintln!("✗ No MCP client config found.");
+                    eprintln!("  Specify --client (claude-desktop or cursor) or --config <path>.");
+                    process::exit(1);
+                }
+            },
+        };
+
+        let path = client.config_path();
+        let label = client.display_name().to_string();
+        println!("Detected {} config", label);
+        (path, label)
     };
 
-    let config_path = client.config_path();
     if !config_path.exists() {
-        eprintln!(
-            "✗ {} config not found at {}",
-            client.display_name(),
-            config_path.display()
-        );
+        eprintln!("✗ Config not found at {}", config_path.display());
         process::exit(1);
     }
-
-    println!("Detected {} config", client.display_name());
 
     // Read config
     let config_str = match std::fs::read_to_string(&config_path) {
@@ -848,9 +867,7 @@ fn cmd_unwrap(client: Option<McpClient>, only: Vec<String>, dry_run: bool) {
 
     println!(
         "✓ Unwrapped {}/{} servers. Restart {} to apply.",
-        unwrapped_count,
-        total,
-        client.display_name()
+        unwrapped_count, total, client_label
     );
 }
 
