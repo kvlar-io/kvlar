@@ -22,7 +22,9 @@ use tokio::time::timeout;
 /// Helper: build an Engine from inline YAML policy.
 fn engine_from_yaml(yaml: &str) -> Engine {
     let mut engine = Engine::new();
-    engine.load_policy_yaml(yaml).expect("failed to parse test policy");
+    engine
+        .load_policy_yaml(yaml)
+        .expect("failed to parse test policy");
     engine
 }
 
@@ -166,10 +168,7 @@ rules:
       type: allow
 "#;
 
-    let messages = vec![
-        initialize_request(1),
-        tools_list_request(2),
-    ];
+    let messages = vec![initialize_request(1), tools_list_request(2)];
 
     let responses = run_proxy_with_messages(policy, messages).await;
 

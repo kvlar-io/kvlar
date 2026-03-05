@@ -3,8 +3,8 @@
 //! Provides a lightweight HTTP `/health` endpoint for liveness probes
 //! (Docker, K8s, load balancers) and tracks proxy runtime statistics.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use serde::Serialize;

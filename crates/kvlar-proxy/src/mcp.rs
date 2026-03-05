@@ -223,10 +223,7 @@ pub fn approval_required_response(
 ///
 /// Uses standard JSON-RPC error codes:
 /// - -32000: Server error (upstream disconnect/timeout)
-pub fn upstream_error_response(
-    request_id: serde_json::Value,
-    message: &str,
-) -> McpResponse {
+pub fn upstream_error_response(request_id: serde_json::Value, message: &str) -> McpResponse {
     McpResponse {
         jsonrpc: "2.0".into(),
         id: request_id,

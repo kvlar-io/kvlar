@@ -221,8 +221,8 @@ where
                                             Ok(kvlar_core::ApprovalResponse::Denied {
                                                 reason: deny_reason,
                                             }) => {
-                                                let final_reason = deny_reason
-                                                    .unwrap_or_else(|| {
+                                                let final_reason =
+                                                    deny_reason.unwrap_or_else(|| {
                                                         "denied by human reviewer".into()
                                                     });
                                                 tracing::warn!(
@@ -237,12 +237,9 @@ where
                                                     &matched_rule,
                                                 );
                                                 if let Ok(json) = serde_json::to_string(&resp) {
-                                                    let mut writer =
-                                                        client_writer.lock().await;
+                                                    let mut writer = client_writer.lock().await;
                                                     let _ = writer
-                                                        .write_all(
-                                                            format!("{}\n", json).as_bytes(),
-                                                        )
+                                                        .write_all(format!("{}\n", json).as_bytes())
                                                         .await;
                                                     let _ = writer.flush().await;
                                                 }
@@ -288,9 +285,7 @@ where
                         let resp = mcp::parse_error_response(&e.to_string());
                         if let Ok(json) = serde_json::to_string(&resp) {
                             let mut writer = client_writer.lock().await;
-                            let _ = writer
-                                .write_all(format!("{}\n", json).as_bytes())
-                                .await;
+                            let _ = writer.write_all(format!("{}\n", json).as_bytes()).await;
                             let _ = writer.flush().await;
                         }
                     }

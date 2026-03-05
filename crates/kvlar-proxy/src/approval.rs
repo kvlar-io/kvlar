@@ -93,18 +93,13 @@ impl ApprovalBackend for WebhookApprovalBackend {
         let request = request.clone();
 
         Box::pin(async move {
-            let resp = client
-                .post(&url)
-                .json(&request)
-                .send()
-                .await
-                .map_err(|e| {
-                    if e.is_timeout() {
-                        ApprovalError::Timeout(timeout)
-                    } else {
-                        ApprovalError::Backend(format!("webhook request failed: {e}"))
-                    }
-                })?;
+            let resp = client.post(&url).json(&request).send().await.map_err(|e| {
+                if e.is_timeout() {
+                    ApprovalError::Timeout(timeout)
+                } else {
+                    ApprovalError::Backend(format!("webhook request failed: {e}"))
+                }
+            })?;
 
             if !resp.status().is_success() {
                 return Err(ApprovalError::Backend(format!(
@@ -113,10 +108,9 @@ impl ApprovalBackend for WebhookApprovalBackend {
                 )));
             }
 
-            let approval_response: ApprovalResponse =
-                resp.json().await.map_err(|e| {
-                    ApprovalError::Backend(format!("failed to parse webhook response: {e}"))
-                })?;
+            let approval_response: ApprovalResponse = resp.json().await.map_err(|e| {
+                ApprovalError::Backend(format!("failed to parse webhook response: {e}"))
+            })?;
 
             Ok(approval_response)
         })

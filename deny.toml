@@ -4,6 +4,9 @@
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
+# instant is unmaintained (RUSTSEC-2024-0384) but is a transitive dep of notify.
+# notify-types pulls it in and we can't control that. Safe to ignore.
+ignore = ["RUSTSEC-2024-0384"]
 
 [licenses]
 allow = [
@@ -13,6 +16,7 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "MPL-2.0",
+    "CC0-1.0",
     "Unicode-3.0",
     "Unicode-DFS-2016",
 ]

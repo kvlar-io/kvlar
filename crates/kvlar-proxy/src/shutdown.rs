@@ -35,7 +35,7 @@ pub fn signal_shutdown_token() -> CancellationToken {
 async fn wait_for_shutdown_signal() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         let mut sigterm = signal(SignalKind::terminate())?;
         let mut sigint = signal(SignalKind::interrupt())?;
 
@@ -62,10 +62,7 @@ async fn wait_for_shutdown_signal() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// Returns `true` if the shutdown completed within the timeout,
 /// `false` if it was force-killed.
-pub async fn shutdown_with_timeout(
-    token: &CancellationToken,
-    timeout_duration: Duration,
-) -> bool {
+pub async fn shutdown_with_timeout(token: &CancellationToken, timeout_duration: Duration) -> bool {
     token.cancelled().await;
 
     // Give a grace period for in-flight work to complete
