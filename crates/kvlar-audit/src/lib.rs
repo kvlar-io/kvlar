@@ -9,9 +9,11 @@
 //! - **Human** — developer-friendly colored output for local development
 
 pub mod event;
+pub mod export;
 pub mod logger;
 
 pub use event::{AuditEvent, EventOutcome};
+pub use export::{ExportFilter, ExportFormat, export_events, export_from_file};
 pub use logger::AuditLogger;
 
 /// Library version, pulled from Cargo.toml at compile time.

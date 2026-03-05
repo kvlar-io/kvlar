@@ -176,6 +176,12 @@ enum Commands {
         dry_run: bool,
     },
 
+    /// Audit log management — export and query audit events.
+    Audit {
+        #[command(subcommand)]
+        command: AuditCommands,
+    },
+
     /// Run policy tests from a test file.
     ///
     /// Validates your security policy by running test cases that define
@@ -196,6 +202,59 @@ enum Commands {
         /// Show verbose output (print all tests, not just failures).
         #[arg(short, long)]
         verbose: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuditCommands {
+    /// Export audit logs in SIEM-compatible formats.
+    ///
+    /// Reads a JSONL audit log file and exports events in the specified
+    /// format. Supports filtering by time range, outcome, resource, and agent.
+    ///
+    /// Supported formats:
+    ///   jsonl — JSON Lines (Splunk, Datadog, Elastic)
+    ///   cef   — Common Event Format (ArcSight, QRadar, Splunk)
+    ///   csv   — Comma-separated values
+    Export {
+        /// Path to the audit JSONL file.
+        #[arg(short, long)]
+        file: PathBuf,
+
+        /// Export format: jsonl, cef, csv.
+        #[arg(long, default_value = "jsonl")]
+        format: String,
+
+        /// Output file (default: stdout).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Only events after this time (RFC 3339, e.g. "2026-03-01T00:00:00Z").
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Only events before this time (RFC 3339).
+        #[arg(long)]
+        until: Option<String>,
+
+        /// Filter by outcome: allowed, denied, pending_approval.
+        #[arg(long)]
+        outcome: Option<String>,
+
+        /// Filter by resource (substring match).
+        #[arg(long)]
+        resource: Option<String>,
+
+        /// Filter by agent ID (substring match).
+        #[arg(long)]
+        agent: Option<String>,
+    },
+
+    /// Show audit log summary statistics.
+    Stats {
+        /// Path to the audit JSONL file.
+        #[arg(short, long)]
+        file: PathBuf,
     },
 }
 
@@ -250,6 +309,21 @@ fn main() {
             only,
             dry_run,
         } => cmd_unwrap(client, config, only, dry_run),
+        Commands::Audit { command } => match command {
+            AuditCommands::Export {
+                file,
+                format,
+                output,
+                since,
+                until,
+                outcome,
+                resource,
+                agent,
+            } => cmd_audit_export(
+                &file, &format, output, since, until, outcome, resource, agent,
+            ),
+            AuditCommands::Stats { file } => cmd_audit_stats(&file),
+        },
         Commands::Test {
             file,
             policy,
@@ -1109,5 +1183,200 @@ fn cmd_test(
 
     if result.failed > 0 {
         process::exit(1);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_audit_export(
+    file: &std::path::Path,
+    format_str: &str,
+    output: Option<PathBuf>,
+    since: Option<String>,
+    until: Option<String>,
+    outcome: Option<String>,
+    resource: Option<String>,
+    agent: Option<String>,
+) {
+    use chrono::DateTime;
+
+    // Parse format
+    let format = match kvlar_audit::ExportFormat::parse(format_str) {
+        Some(f) => f,
+        None => {
+            eprintln!(
+                "✗ Unknown format '{}'. Supported: jsonl, cef, csv",
+                format_str
+            );
+            process::exit(1);
+        }
+    };
+
+    // Build filter
+    // Parse filter values upfront
+    let parsed_since = since.map(|s| {
+        DateTime::parse_from_rfc3339(&s)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .unwrap_or_else(|e| {
+                eprintln!("✗ Invalid --since timestamp: {}", e);
+                process::exit(1);
+            })
+    });
+    let parsed_until = until.map(|s| {
+        DateTime::parse_from_rfc3339(&s)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .unwrap_or_else(|e| {
+                eprintln!("✗ Invalid --until timestamp: {}", e);
+                process::exit(1);
+            })
+    });
+    let parsed_outcome = outcome.map(|s| match s.as_str() {
+        "allowed" | "allow" => kvlar_audit::EventOutcome::Allowed,
+        "denied" | "deny" => kvlar_audit::EventOutcome::Denied,
+        "pending_approval" | "require_approval" | "approval" => {
+            kvlar_audit::EventOutcome::PendingApproval
+        }
+        _ => {
+            eprintln!(
+                "✗ Unknown outcome '{}'. Use: allowed, denied, pending_approval",
+                s
+            );
+            process::exit(1);
+        }
+    });
+
+    let filter = kvlar_audit::ExportFilter {
+        since: parsed_since,
+        until: parsed_until,
+        outcome: parsed_outcome,
+        resource,
+        agent,
+    };
+
+    // Export
+    let result = match &output {
+        Some(path) => {
+            let mut file_out = match std::fs::File::create(path) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("✗ Cannot create output file {}: {}", path.display(), e);
+                    process::exit(1);
+                }
+            };
+            kvlar_audit::export_from_file(file, &filter, format, &mut file_out)
+        }
+        None => {
+            let mut stdout = std::io::stdout();
+            kvlar_audit::export_from_file(file, &filter, format, &mut stdout)
+        }
+    };
+
+    match result {
+        Ok(count) => {
+            if output.is_some() {
+                eprintln!(
+                    "✓ Exported {} events ({} format)",
+                    count,
+                    format_str.to_uppercase()
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("✗ Export failed: {}", e);
+            process::exit(1);
+        }
+    }
+}
+
+fn cmd_audit_stats(file: &std::path::Path) {
+    use std::io::BufRead;
+
+    let f = match std::fs::File::open(file) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("✗ Cannot open audit file {}: {}", file.display(), e);
+            process::exit(1);
+        }
+    };
+
+    let reader = std::io::BufReader::new(f);
+    let mut total = 0u64;
+    let mut allowed = 0u64;
+    let mut denied = 0u64;
+    let mut pending = 0u64;
+    let mut resources: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut agents: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut first_ts: Option<chrono::DateTime<chrono::Utc>> = None;
+    let mut last_ts: Option<chrono::DateTime<chrono::Utc>> = None;
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let event: kvlar_audit::AuditEvent = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        total += 1;
+        match event.outcome {
+            kvlar_audit::EventOutcome::Allowed => allowed += 1,
+            kvlar_audit::EventOutcome::Denied => denied += 1,
+            kvlar_audit::EventOutcome::PendingApproval => pending += 1,
+        }
+
+        *resources.entry(event.resource.clone()).or_insert(0) += 1;
+        *agents.entry(event.agent_id.clone()).or_insert(0) += 1;
+
+        if first_ts.is_none() || event.timestamp < first_ts.unwrap() {
+            first_ts = Some(event.timestamp);
+        }
+        if last_ts.is_none() || event.timestamp > last_ts.unwrap() {
+            last_ts = Some(event.timestamp);
+        }
+    }
+
+    if total == 0 {
+        println!("No audit events found in {}", file.display());
+        return;
+    }
+
+    println!("Audit Log Summary");
+    println!("─────────────────");
+    println!("File:     {}", file.display());
+    println!("Events:   {}", total);
+    if let (Some(first), Some(last)) = (first_ts, last_ts) {
+        println!(
+            "Period:   {} → {}",
+            first.format("%Y-%m-%d %H:%M"),
+            last.format("%Y-%m-%d %H:%M")
+        );
+    }
+    println!();
+    println!("Outcomes:");
+    println!("  Allowed:          {}", allowed);
+    println!("  Denied:           {}", denied);
+    println!("  Pending Approval: {}", pending);
+    println!();
+
+    // Top resources
+    let mut res_vec: Vec<_> = resources.into_iter().collect();
+    res_vec.sort_by(|a, b| b.1.cmp(&a.1));
+    println!("Top Resources:");
+    for (name, count) in res_vec.iter().take(10) {
+        println!("  {:20} {}", name, count);
+    }
+    println!();
+
+    // Top agents
+    let mut agent_vec: Vec<_> = agents.into_iter().collect();
+    agent_vec.sort_by(|a, b| b.1.cmp(&a.1));
+    println!("Top Agents:");
+    for (name, count) in agent_vec.iter().take(10) {
+        println!("  {:20} {}", name, count);
     }
 }
