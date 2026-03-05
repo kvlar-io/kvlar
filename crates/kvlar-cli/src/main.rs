@@ -87,6 +87,12 @@ enum Commands {
         #[arg(long)]
         stdio: bool,
 
+        /// Watch policy files and reload automatically on change.
+        /// When a policy file is saved, the proxy reloads it without restarting.
+        /// If the new policy has errors, the old policy is kept.
+        #[arg(long)]
+        watch: bool,
+
         /// Upstream MCP server command and arguments (everything after `--`).
         /// Only used with --stdio.
         #[arg(last = true)]
@@ -196,6 +202,7 @@ fn main() {
             upstream,
             policy,
             stdio,
+            watch,
             upstream_cmd,
         } => cmd_proxy(
             config.as_deref(),
@@ -203,6 +210,7 @@ fn main() {
             upstream,
             policy,
             stdio,
+            watch,
             upstream_cmd,
         ),
         Commands::Init { dir, template } => cmd_init(dir, &template),
@@ -364,6 +372,7 @@ fn cmd_proxy(
     upstream: Option<String>,
     policy_paths: Vec<PathBuf>,
     stdio: bool,
+    watch: bool,
     upstream_cmd: Vec<String>,
 ) {
     // Load config
@@ -450,6 +459,9 @@ fn cmd_proxy(
         )
         .init();
 
+    // Determine if hot-reload is enabled (CLI flag or config)
+    let hot_reload = watch || config.hot_reload;
+
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     if use_stderr {
@@ -460,16 +472,55 @@ fn cmd_proxy(
 
         eprintln!("  Stdio mode: {} {}", command, args.join(" "));
 
-        let transport = kvlar_proxy::stdio::StdioTransport::new(
-            engine,
-            kvlar_audit::AuditLogger::default(),
-            command,
-            args,
-            fail_open,
-        );
-        if let Err(e) = rt.block_on(transport.run()) {
-            eprintln!("✗ Proxy error: {}", e);
-            process::exit(1);
+        if hot_reload {
+            // Hot-reload: wrap engine in shared Arc<RwLock>, spawn watcher
+            let shared_engine = std::sync::Arc::new(tokio::sync::RwLock::new(engine));
+
+            let transport = kvlar_proxy::stdio::StdioTransport::with_shared_engine(
+                shared_engine.clone(),
+                kvlar_audit::AuditLogger::default(),
+                command,
+                args,
+                fail_open,
+            );
+
+            // Build extends resolver for the watcher
+            let extends_resolver = build_extends_resolver();
+
+            // Collect canonical policy paths
+            let watch_paths: Vec<PathBuf> = config
+                .policy_paths
+                .iter()
+                .filter_map(|p| std::fs::canonicalize(p).ok())
+                .collect();
+
+            if let Err(e) = rt.block_on(async {
+                // Spawn watcher — _watcher must stay alive
+                let (_handle, _watcher) = kvlar_proxy::watcher::spawn_watcher(
+                    shared_engine,
+                    watch_paths,
+                    Some(extends_resolver),
+                )?;
+                transport
+                    .run()
+                    .await
+                    .map_err(|e| -> Box<dyn std::error::Error> { e })
+            }) {
+                eprintln!("✗ Proxy error: {}", e);
+                process::exit(1);
+            }
+        } else {
+            let transport = kvlar_proxy::stdio::StdioTransport::new(
+                engine,
+                kvlar_audit::AuditLogger::default(),
+                command,
+                args,
+                fail_open,
+            );
+            if let Err(e) = rt.block_on(transport.run()) {
+                eprintln!("✗ Proxy error: {}", e);
+                process::exit(1);
+            }
         }
     } else {
         // TCP mode
@@ -478,12 +529,58 @@ fn cmd_proxy(
             config.listen_addr, config.upstream_addr
         );
 
-        let proxy = kvlar_proxy::proxy::McpProxy::new(engine, config);
-        if let Err(e) = rt.block_on(proxy.run()) {
+        let proxy = kvlar_proxy::proxy::McpProxy::new(engine, config.clone());
+
+        if hot_reload {
+            let shared_engine = proxy.engine().clone();
+            let extends_resolver = build_extends_resolver();
+            let watch_paths: Vec<PathBuf> = config
+                .policy_paths
+                .iter()
+                .filter_map(|p| std::fs::canonicalize(p).ok())
+                .collect();
+
+            if let Err(e) = rt.block_on(async {
+                let (_handle, _watcher) = kvlar_proxy::watcher::spawn_watcher(
+                    shared_engine,
+                    watch_paths,
+                    Some(extends_resolver),
+                )?;
+                proxy
+                    .run()
+                    .await
+                    .map_err(|e| -> Box<dyn std::error::Error> { e })
+            }) {
+                eprintln!("✗ Proxy error: {}", e);
+                process::exit(1);
+            }
+        } else if let Err(e) = rt.block_on(proxy.run()) {
             eprintln!("✗ Proxy error: {}", e);
             process::exit(1);
         }
     }
+}
+
+/// Builds an extends resolver closure for use by the policy watcher.
+fn build_extends_resolver() -> kvlar_proxy::watcher::ExtendsResolver {
+    std::sync::Arc::new(|name: &str| {
+        // Try built-in template first
+        if let Some(yaml) = policy_template(name) {
+            return Ok(yaml.to_string());
+        }
+        // Try as file path
+        let path = std::path::Path::new(name);
+        if path.exists() {
+            return std::fs::read_to_string(path).map_err(|e| {
+                kvlar_core::KvlarError::PolicyParse(format!("failed to read {}: {}", name, e))
+            });
+        }
+        Err(kvlar_core::KvlarError::PolicyParse(format!(
+            "unknown policy '{}' in extends — not a built-in template ({}) and not a file path",
+            name,
+            template_names().join(", ")
+        )))
+    })
 }
 
 fn policy_template(name: &str) -> Option<&'static str> {
@@ -753,7 +850,12 @@ fn cmd_wrap(
     );
 }
 
-fn cmd_unwrap(client: Option<McpClient>, config: Option<PathBuf>, only: Vec<String>, dry_run: bool) {
+fn cmd_unwrap(
+    client: Option<McpClient>,
+    config: Option<PathBuf>,
+    only: Vec<String>,
+    dry_run: bool,
+) {
     // Resolve config path: --config overrides client auto-detection
     let (config_path, client_label) = if let Some(custom_config) = config {
         let label = custom_config.display().to_string();

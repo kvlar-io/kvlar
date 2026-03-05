@@ -18,7 +18,7 @@ use kvlar_audit::AuditLogger;
 use kvlar_core::Engine;
 use tokio::io::BufReader;
 use tokio::process::Command;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::handler;
 
@@ -28,7 +28,7 @@ use crate::handler;
 /// MCP messages between the client (our stdin/stdout) and the server
 /// (child process stdin/stdout), applying policy evaluation on tool calls.
 pub struct StdioTransport {
-    engine: Arc<Mutex<Engine>>,
+    engine: Arc<RwLock<Engine>>,
     audit: Arc<Mutex<AuditLogger>>,
     command: String,
     args: Vec<String>,
@@ -45,12 +45,38 @@ impl StdioTransport {
         fail_open: bool,
     ) -> Self {
         Self {
-            engine: Arc::new(Mutex::new(engine)),
+            engine: Arc::new(RwLock::new(engine)),
             audit: Arc::new(Mutex::new(audit)),
             command,
             args,
             fail_open,
         }
+    }
+
+    /// Creates a new stdio transport proxy with a shared engine reference.
+    ///
+    /// Use this when hot-reload is enabled — the caller retains a clone
+    /// of the `Arc<RwLock<Engine>>` and can swap the engine atomically
+    /// while the proxy is running.
+    pub fn with_shared_engine(
+        engine: Arc<RwLock<Engine>>,
+        audit: AuditLogger,
+        command: String,
+        args: Vec<String>,
+        fail_open: bool,
+    ) -> Self {
+        Self {
+            engine,
+            audit: Arc::new(Mutex::new(audit)),
+            command,
+            args,
+            fail_open,
+        }
+    }
+
+    /// Returns a reference to the shared engine (for hot-reload wiring).
+    pub fn engine(&self) -> &Arc<RwLock<Engine>> {
+        &self.engine
     }
 
     /// Runs the stdio proxy.

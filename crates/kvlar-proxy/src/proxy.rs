@@ -10,7 +10,7 @@ use kvlar_audit::AuditLogger;
 use kvlar_core::Engine;
 use tokio::io::BufReader;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::config::ProxyConfig;
 use crate::handler;
@@ -22,7 +22,7 @@ use crate::handler;
 /// to the upstream MCP server.
 pub struct McpProxy {
     /// The policy evaluation engine.
-    engine: Arc<Mutex<Engine>>,
+    engine: Arc<RwLock<Engine>>,
 
     /// Proxy configuration.
     config: ProxyConfig,
@@ -36,7 +36,7 @@ impl McpProxy {
     pub fn new(engine: Engine, config: ProxyConfig) -> Self {
         let audit = AuditLogger::default();
         Self {
-            engine: Arc::new(Mutex::new(engine)),
+            engine: Arc::new(RwLock::new(engine)),
             config,
             audit: Arc::new(Mutex::new(audit)),
         }
@@ -45,14 +45,14 @@ impl McpProxy {
     /// Creates a new proxy with a custom audit logger.
     pub fn with_audit(engine: Engine, config: ProxyConfig, audit: AuditLogger) -> Self {
         Self {
-            engine: Arc::new(Mutex::new(engine)),
+            engine: Arc::new(RwLock::new(engine)),
             config,
             audit: Arc::new(Mutex::new(audit)),
         }
     }
 
-    /// Returns a reference to the engine (behind mutex).
-    pub fn engine(&self) -> &Arc<Mutex<Engine>> {
+    /// Returns a reference to the shared engine.
+    pub fn engine(&self) -> &Arc<RwLock<Engine>> {
         &self.engine
     }
 
@@ -63,7 +63,7 @@ impl McpProxy {
 
     /// Replaces the engine with a new one (for hot-reload).
     pub async fn replace_engine(&self, new_engine: Engine) {
-        let mut engine = self.engine.lock().await;
+        let mut engine = self.engine.write().await;
         *engine = new_engine;
     }
 
@@ -96,7 +96,7 @@ impl McpProxy {
     async fn handle_connection(
         client_stream: TcpStream,
         upstream_addr: &str,
-        engine: Arc<Mutex<Engine>>,
+        engine: Arc<RwLock<Engine>>,
         audit: Arc<Mutex<AuditLogger>>,
         fail_open: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -140,7 +140,7 @@ mod tests {
         let proxy = McpProxy::new(engine, config);
 
         {
-            let engine = proxy.engine().lock().await;
+            let engine = proxy.engine().read().await;
             assert_eq!(engine.policy_count(), 0);
         }
 
@@ -165,7 +165,7 @@ rules:
         proxy.replace_engine(new_engine).await;
 
         {
-            let engine = proxy.engine().lock().await;
+            let engine = proxy.engine().read().await;
             assert_eq!(engine.policy_count(), 1);
         }
     }

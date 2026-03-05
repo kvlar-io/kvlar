@@ -21,6 +21,7 @@ pub mod handler;
 pub mod mcp;
 pub mod proxy;
 pub mod stdio;
+pub mod watcher;
 
 pub use config::ProxyConfig;
 pub use mcp::{McpMessage, McpRequest, McpResponse, ToolCallParams};

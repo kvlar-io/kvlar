@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/kvlar-io/kvlar"
@@ -29,3 +29,4 @@ schemars = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 regex = "1"
+notify = { version = "7", default-features = false, features = ["macos_fsevent"] }

@@ -10,7 +10,7 @@ use kvlar_audit::AuditLogger;
 use kvlar_audit::event::{AuditEvent, EventOutcome};
 use kvlar_core::{Action, Decision, Engine};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::mcp::{self, McpMessage};
 
@@ -25,7 +25,7 @@ pub async fn run_proxy_loop<CR, CW, UR, UW>(
     client_writer: Arc<Mutex<CW>>,
     upstream_reader: UR,
     upstream_writer: Arc<Mutex<UW>>,
-    engine: Arc<Mutex<Engine>>,
+    engine: Arc<RwLock<Engine>>,
     audit: Arc<Mutex<AuditLogger>>,
     _fail_open: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
@@ -69,7 +69,7 @@ async fn proxy_client_to_upstream<CR, CW, UW>(
     mut client_reader: CR,
     client_writer: Arc<Mutex<CW>>,
     upstream_writer: Arc<Mutex<UW>>,
-    engine: Arc<Mutex<Engine>>,
+    engine: Arc<RwLock<Engine>>,
     audit: Arc<Mutex<AuditLogger>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
@@ -103,7 +103,7 @@ where
                             }
 
                             // Evaluate against policy
-                            let eng = engine.lock().await;
+                            let eng = engine.read().await;
                             let decision = eng.evaluate(&action);
                             drop(eng);
 
@@ -315,7 +315,7 @@ rules:
             client_output.clone(),
             upstream_reader,
             upstream_output.clone(),
-            Arc::new(Mutex::new(engine)),
+            Arc::new(RwLock::new(engine)),
             Arc::new(Mutex::new(audit)),
             false,
         )
@@ -559,7 +559,7 @@ rules:
             client_output,
             upstream_reader,
             upstream_output,
-            Arc::new(Mutex::new(engine_with_default_policy())),
+            Arc::new(RwLock::new(engine_with_default_policy())),
             audit.clone(),
             false,
         )

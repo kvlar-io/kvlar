@@ -11,9 +11,9 @@ name = "kvlar"
 path = "src/main.rs"
 
 [dependencies]
-kvlar-core = { path = "../kvlar-core", version = "0.1.0" }
-kvlar-proxy = { path = "../kvlar-proxy", version = "0.1.0" }
-kvlar-audit = { path = "../kvlar-audit", version = "0.1.0" }
+kvlar-core = { path = "../kvlar-core", version = "0.2.0" }
+kvlar-proxy = { path = "../kvlar-proxy", version = "0.2.0" }
+kvlar-audit = { path = "../kvlar-audit", version = "0.2.0" }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
