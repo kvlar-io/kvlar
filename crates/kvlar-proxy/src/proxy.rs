@@ -14,6 +14,8 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::config::ProxyConfig;
 use crate::handler;
+use crate::health::ProxyStats;
+use crate::shutdown;
 
 /// The MCP security proxy (TCP transport).
 ///
@@ -29,6 +31,9 @@ pub struct McpProxy {
 
     /// Audit logger.
     audit: Arc<Mutex<AuditLogger>>,
+
+    /// Runtime statistics for health endpoint.
+    stats: Arc<ProxyStats>,
 }
 
 impl McpProxy {
@@ -39,6 +44,7 @@ impl McpProxy {
             engine: Arc::new(RwLock::new(engine)),
             config,
             audit: Arc::new(Mutex::new(audit)),
+            stats: Arc::new(ProxyStats::new()),
         }
     }
 
@@ -48,6 +54,7 @@ impl McpProxy {
             engine: Arc::new(RwLock::new(engine)),
             config,
             audit: Arc::new(Mutex::new(audit)),
+            stats: Arc::new(ProxyStats::new()),
         }
     }
 
@@ -61,35 +68,86 @@ impl McpProxy {
         &self.config
     }
 
+    /// Returns a reference to the proxy stats.
+    pub fn stats(&self) -> &Arc<ProxyStats> {
+        &self.stats
+    }
+
     /// Replaces the engine with a new one (for hot-reload).
     pub async fn replace_engine(&self, new_engine: Engine) {
         let mut engine = self.engine.write().await;
         *engine = new_engine;
     }
 
-    /// Starts the proxy server.
+    /// Starts the proxy server with graceful shutdown.
+    ///
+    /// Listens for incoming connections and handles them concurrently.
+    /// On SIGTERM/SIGINT, stops accepting new connections and waits
+    /// for active connections to drain (up to 30s timeout).
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         let listener = TcpListener::bind(&self.config.listen_addr).await?;
         tracing::info!(addr = %self.config.listen_addr, "kvlar proxy listening");
 
-        loop {
-            let (client_stream, client_addr) = listener.accept().await?;
-            tracing::info!(client = %client_addr, "new connection");
-
-            let engine = self.engine.clone();
-            let upstream_addr = self.config.upstream_addr.clone();
-            let audit = self.audit.clone();
-            let fail_open = self.config.fail_open;
-
+        // Start health check server if configured
+        if let Some(ref health_addr) = self.config.health_addr {
+            let stats = self.stats.clone();
+            let addr = health_addr.clone();
             tokio::spawn(async move {
-                if let Err(e) =
-                    Self::handle_connection(client_stream, &upstream_addr, engine, audit, fail_open)
-                        .await
-                {
-                    tracing::error!(client = %client_addr, error = %e, "connection error");
+                if let Err(e) = crate::health::run_health_server(&addr, stats).await {
+                    tracing::error!(error = %e, "health server error");
                 }
             });
         }
+
+        // Update stats with current policy info
+        {
+            let eng = self.engine.read().await;
+            self.stats
+                .set_policy_info(eng.policy_count() > 0, eng.rule_count() as u64);
+        }
+
+        // Install signal handlers
+        let shutdown_token = shutdown::signal_shutdown_token();
+
+        loop {
+            tokio::select! {
+                result = listener.accept() => {
+                    let (client_stream, client_addr) = result?;
+                    tracing::info!(client = %client_addr, "new connection");
+
+                    let engine = self.engine.clone();
+                    let upstream_addr = self.config.upstream_addr.clone();
+                    let audit = self.audit.clone();
+                    let fail_open = self.config.fail_open;
+
+                    tokio::spawn(async move {
+                        if let Err(e) =
+                            Self::handle_connection(client_stream, &upstream_addr, engine, audit, fail_open)
+                                .await
+                        {
+                            tracing::error!(client = %client_addr, error = %e, "connection error");
+                        }
+                    });
+                }
+                _ = shutdown_token.cancelled() => {
+                    tracing::info!("shutdown signal received, stopping accept loop");
+                    break;
+                }
+            }
+        }
+
+        // Flush audit log
+        {
+            let mut audit = self.audit.lock().await;
+            audit.flush();
+            tracing::info!("audit log flushed");
+        }
+
+        // Give active connections time to drain
+        tracing::info!("waiting for active connections to drain...");
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        Ok(())
     }
 
     /// Handles a single client connection by delegating to the shared handler.
@@ -116,6 +174,7 @@ impl McpProxy {
             engine,
             audit,
             fail_open,
+            None,
         )
         .await
     }

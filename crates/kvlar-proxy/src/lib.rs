@@ -16,13 +16,19 @@
 //!               └── kvlar-audit (structured logging)
 //! ```
 
+pub mod approval;
 pub mod config;
 pub mod handler;
+pub mod health;
 pub mod mcp;
 pub mod proxy;
+pub mod shutdown;
 pub mod stdio;
 pub mod watcher;
 
+pub use approval::{
+    ApprovalBackend, ApprovalError, DenyAllApprovalBackend, WebhookApprovalBackend,
+};
 pub use config::ProxyConfig;
 pub use mcp::{McpMessage, McpRequest, McpResponse, ToolCallParams};
 

@@ -111,6 +111,15 @@ impl AuditLogger {
         self.format
     }
 
+    /// Flushes the file sink, ensuring all buffered writes are persisted.
+    ///
+    /// No-op for memory-only loggers.
+    pub fn flush(&mut self) {
+        if let AuditSink::File { file, .. } = &mut self.sink {
+            let _ = file.flush();
+        }
+    }
+
     /// Clears all in-memory events.
     pub fn clear(&mut self) {
         self.events.clear();

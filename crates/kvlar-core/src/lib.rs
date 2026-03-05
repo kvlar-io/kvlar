@@ -11,6 +11,7 @@
 //! - **Engine**: Evaluates actions against loaded policies
 
 pub mod action;
+pub mod approval;
 pub mod decision;
 pub mod engine;
 pub mod error;
@@ -18,7 +19,8 @@ pub mod policy;
 pub mod testing;
 
 pub use action::Action;
-pub use decision::Decision;
+pub use approval::{ApprovalRequest, ApprovalResponse};
+pub use decision::{Decision, ErrorDetail};
 pub use engine::Engine;
 pub use error::KvlarError;
 pub use policy::Policy;

@@ -8,10 +8,11 @@ use std::sync::Arc;
 
 use kvlar_audit::AuditLogger;
 use kvlar_audit::event::{AuditEvent, EventOutcome};
-use kvlar_core::{Action, Decision, Engine};
+use kvlar_core::{Action, ApprovalRequest, Decision, Engine};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Mutex, RwLock};
 
+use crate::approval::ApprovalBackend;
 use crate::mcp::{self, McpMessage};
 
 /// Runs the bidirectional proxy loop.
@@ -20,6 +21,11 @@ use crate::mcp::{self, McpMessage};
 /// against the policy engine, forwards allowed messages to `upstream_writer`,
 /// and sends deny/approval responses back through `client_writer`. Server
 /// responses from `upstream_reader` are forwarded back to `client_writer`.
+///
+/// If `approval_backend` is provided, `RequireApproval` decisions will be
+/// sent to the backend for human review. If not provided, they are denied
+/// by default (fail-closed).
+#[allow(clippy::too_many_arguments)]
 pub async fn run_proxy_loop<CR, CW, UR, UW>(
     client_reader: CR,
     client_writer: Arc<Mutex<CW>>,
@@ -28,6 +34,7 @@ pub async fn run_proxy_loop<CR, CW, UR, UW>(
     engine: Arc<RwLock<Engine>>,
     audit: Arc<Mutex<AuditLogger>>,
     _fail_open: bool,
+    approval_backend: Option<Arc<dyn ApprovalBackend>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
     CR: AsyncBufRead + Unpin + Send + 'static,
@@ -46,6 +53,7 @@ where
             upstream_writer,
             engine_clone,
             audit_clone,
+            approval_backend,
         )
         .await
         {
@@ -65,12 +73,14 @@ where
 }
 
 /// Reads messages from the client, evaluates tool calls, and forwards or denies.
+#[allow(clippy::too_many_arguments)]
 async fn proxy_client_to_upstream<CR, CW, UW>(
     mut client_reader: CR,
     client_writer: Arc<Mutex<CW>>,
     upstream_writer: Arc<Mutex<UW>>,
     engine: Arc<RwLock<Engine>>,
     audit: Arc<Mutex<AuditLogger>>,
+    approval_backend: Option<Arc<dyn ApprovalBackend>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
     CR: AsyncBufRead + Unpin,
@@ -185,6 +195,71 @@ where
                                     );
                                     let request_id =
                                         req.id.clone().unwrap_or(serde_json::json!(null));
+
+                                    // If an approval backend is configured, request approval
+                                    if let Some(ref backend) = approval_backend {
+                                        let approval_req = ApprovalRequest::new(
+                                            &tool_call.tool_name,
+                                            tool_call.arguments.clone(),
+                                            &matched_rule,
+                                            &reason,
+                                            "mcp-agent",
+                                        );
+
+                                        match backend.request_approval(&approval_req).await {
+                                            Ok(kvlar_core::ApprovalResponse::Approved) => {
+                                                tracing::info!(
+                                                    tool = %tool_call.tool_name,
+                                                    rule = %matched_rule,
+                                                    "APPROVED (via webhook)"
+                                                );
+                                                let mut writer = upstream_writer.lock().await;
+                                                let _ = writer.write_all(line.as_bytes()).await;
+                                                let _ = writer.flush().await;
+                                                continue;
+                                            }
+                                            Ok(kvlar_core::ApprovalResponse::Denied {
+                                                reason: deny_reason,
+                                            }) => {
+                                                let final_reason = deny_reason
+                                                    .unwrap_or_else(|| {
+                                                        "denied by human reviewer".into()
+                                                    });
+                                                tracing::warn!(
+                                                    tool = %tool_call.tool_name,
+                                                    reason = %final_reason,
+                                                    "DENIED (by human reviewer)"
+                                                );
+                                                let resp = mcp::deny_response(
+                                                    request_id,
+                                                    &final_reason,
+                                                    &tool_call.tool_name,
+                                                    &matched_rule,
+                                                );
+                                                if let Ok(json) = serde_json::to_string(&resp) {
+                                                    let mut writer =
+                                                        client_writer.lock().await;
+                                                    let _ = writer
+                                                        .write_all(
+                                                            format!("{}\n", json).as_bytes(),
+                                                        )
+                                                        .await;
+                                                    let _ = writer.flush().await;
+                                                }
+                                                continue;
+                                            }
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    tool = %tool_call.tool_name,
+                                                    error = %e,
+                                                    "approval backend error, denying"
+                                                );
+                                                // Fall through to default behavior below
+                                            }
+                                        }
+                                    }
+
+                                    // No approval backend or backend error — send approval-required response
                                     let resp = mcp::approval_required_response(
                                         request_id,
                                         &reason,
@@ -207,11 +282,17 @@ where
                         let _ = writer.write_all(line.as_bytes()).await;
                         let _ = writer.flush().await;
                     }
-                    Err(_) => {
-                        // Not valid JSON-RPC, pass through
-                        let mut writer = upstream_writer.lock().await;
-                        let _ = writer.write_all(line.as_bytes()).await;
-                        let _ = writer.flush().await;
+                    Err(e) => {
+                        // Malformed JSON-RPC — send parse error back to client
+                        tracing::warn!(error = %e, "malformed JSON-RPC message from client");
+                        let resp = mcp::parse_error_response(&e.to_string());
+                        if let Ok(json) = serde_json::to_string(&resp) {
+                            let mut writer = client_writer.lock().await;
+                            let _ = writer
+                                .write_all(format!("{}\n", json).as_bytes())
+                                .await;
+                            let _ = writer.flush().await;
+                        }
                     }
                 }
             }
@@ -225,6 +306,9 @@ where
 }
 
 /// Forwards all messages from upstream back to the client.
+///
+/// If the upstream disconnects (EOF) or errors, logs the event
+/// and exits gracefully without crashing the proxy.
 async fn proxy_upstream_to_client<UR, CW>(
     mut upstream_reader: UR,
     client_writer: Arc<Mutex<CW>>,
@@ -237,7 +321,10 @@ where
     loop {
         line.clear();
         match upstream_reader.read_line(&mut line).await {
-            Ok(0) => break, // EOF
+            Ok(0) => {
+                tracing::warn!("upstream server disconnected (EOF)");
+                break;
+            }
             Ok(_) => {
                 let trimmed = line.trim();
                 if trimmed.is_empty() {
@@ -248,7 +335,7 @@ where
                 let _ = writer.flush().await;
             }
             Err(e) => {
-                tracing::debug!(error = %e, "upstream read error");
+                tracing::error!(error = %e, "upstream read error — connection may be broken");
                 break;
             }
         }
@@ -318,6 +405,7 @@ rules:
             Arc::new(RwLock::new(engine)),
             Arc::new(Mutex::new(audit)),
             false,
+            None,
         )
         .await
         .unwrap();
@@ -562,6 +650,7 @@ rules:
             Arc::new(RwLock::new(engine_with_default_policy())),
             audit.clone(),
             false,
+            None,
         )
         .await
         .unwrap();

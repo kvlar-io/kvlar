@@ -93,6 +93,22 @@ enum Commands {
         #[arg(long)]
         watch: bool,
 
+        /// URL for the human approval webhook.
+        /// When a policy evaluates to `require_approval`, the proxy POSTs the
+        /// approval request to this URL and waits for a synchronous response.
+        #[arg(long)]
+        approval_webhook: Option<String>,
+
+        /// Timeout in seconds for the approval webhook (default: 300).
+        #[arg(long, default_value = "300")]
+        approval_timeout: u64,
+
+        /// Health check endpoint address (e.g., "127.0.0.1:9101").
+        /// Starts a lightweight HTTP server that responds to GET /health
+        /// with JSON status. TCP mode only.
+        #[arg(long)]
+        health: Option<String>,
+
         /// Upstream MCP server command and arguments (everything after `--`).
         /// Only used with --stdio.
         #[arg(last = true)]
@@ -203,6 +219,9 @@ fn main() {
             policy,
             stdio,
             watch,
+            approval_webhook,
+            approval_timeout,
+            health,
             upstream_cmd,
         } => cmd_proxy(
             config.as_deref(),
@@ -211,6 +230,9 @@ fn main() {
             policy,
             stdio,
             watch,
+            approval_webhook,
+            approval_timeout,
+            health,
             upstream_cmd,
         ),
         Commands::Init { dir, template } => cmd_init(dir, &template),
@@ -366,6 +388,7 @@ fn cmd_schema(output: Option<&std::path::Path>) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_proxy(
     config_path: Option<&std::path::Path>,
     listen: Option<String>,
@@ -373,6 +396,9 @@ fn cmd_proxy(
     policy_paths: Vec<PathBuf>,
     stdio: bool,
     watch: bool,
+    approval_webhook: Option<String>,
+    approval_timeout: u64,
+    health: Option<String>,
     upstream_cmd: Vec<String>,
 ) {
     // Load config
@@ -399,6 +425,10 @@ fn cmd_proxy(
             .iter()
             .map(|p| p.to_string_lossy().into_owned())
             .collect();
+    }
+
+    if let Some(addr) = health {
+        config.health_addr = Some(addr);
     }
 
     // Apply stdio mode from CLI flag
@@ -459,6 +489,15 @@ fn cmd_proxy(
         )
         .init();
 
+    // Build approval backend if webhook URL is provided
+    let approval_backend: Option<std::sync::Arc<dyn kvlar_proxy::ApprovalBackend>> =
+        approval_webhook.map(|url| {
+            eprintln!("  Approval webhook: {}", url);
+            let timeout = std::time::Duration::from_secs(approval_timeout);
+            std::sync::Arc::new(kvlar_proxy::WebhookApprovalBackend::new(url, timeout))
+                as std::sync::Arc<dyn kvlar_proxy::ApprovalBackend>
+        });
+
     // Determine if hot-reload is enabled (CLI flag or config)
     let hot_reload = watch || config.hot_reload;
 
@@ -476,13 +515,16 @@ fn cmd_proxy(
             // Hot-reload: wrap engine in shared Arc<RwLock>, spawn watcher
             let shared_engine = std::sync::Arc::new(tokio::sync::RwLock::new(engine));
 
-            let transport = kvlar_proxy::stdio::StdioTransport::with_shared_engine(
+            let mut transport = kvlar_proxy::stdio::StdioTransport::with_shared_engine(
                 shared_engine.clone(),
                 kvlar_audit::AuditLogger::default(),
                 command,
                 args,
                 fail_open,
             );
+            if let Some(ref backend) = approval_backend {
+                transport = transport.with_approval_backend(backend.clone());
+            }
 
             // Build extends resolver for the watcher
             let extends_resolver = build_extends_resolver();
@@ -510,13 +552,16 @@ fn cmd_proxy(
                 process::exit(1);
             }
         } else {
-            let transport = kvlar_proxy::stdio::StdioTransport::new(
+            let mut transport = kvlar_proxy::stdio::StdioTransport::new(
                 engine,
                 kvlar_audit::AuditLogger::default(),
                 command,
                 args,
                 fail_open,
             );
+            if let Some(ref backend) = approval_backend {
+                transport = transport.with_approval_backend(backend.clone());
+            }
             if let Err(e) = rt.block_on(transport.run()) {
                 eprintln!("✗ Proxy error: {}", e);
                 process::exit(1);

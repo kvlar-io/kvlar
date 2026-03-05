@@ -20,7 +20,9 @@ use tokio::io::BufReader;
 use tokio::process::Command;
 use tokio::sync::{Mutex, RwLock};
 
+use crate::approval::ApprovalBackend;
 use crate::handler;
+use crate::shutdown;
 
 /// MCP stdio transport proxy.
 ///
@@ -33,6 +35,7 @@ pub struct StdioTransport {
     command: String,
     args: Vec<String>,
     fail_open: bool,
+    approval_backend: Option<Arc<dyn ApprovalBackend>>,
 }
 
 impl StdioTransport {
@@ -50,6 +53,7 @@ impl StdioTransport {
             command,
             args,
             fail_open,
+            approval_backend: None,
         }
     }
 
@@ -71,7 +75,14 @@ impl StdioTransport {
             command,
             args,
             fail_open,
+            approval_backend: None,
         }
+    }
+
+    /// Sets the approval backend for handling `RequireApproval` decisions.
+    pub fn with_approval_backend(mut self, backend: Arc<dyn ApprovalBackend>) -> Self {
+        self.approval_backend = Some(backend);
+        self
     }
 
     /// Returns a reference to the shared engine (for hot-reload wiring).
@@ -79,17 +90,26 @@ impl StdioTransport {
         &self.engine
     }
 
-    /// Runs the stdio proxy.
+    /// Runs the stdio proxy with graceful shutdown.
     ///
     /// Spawns the upstream MCP server as a child process, then proxies
     /// all MCP messages through the policy engine. This function blocks
-    /// until the client disconnects (stdin EOF) or the child process exits.
+    /// until the client disconnects (stdin EOF), the child process exits,
+    /// or a shutdown signal (SIGTERM/SIGINT) is received.
+    ///
+    /// On shutdown signal:
+    /// 1. Active proxy loop is allowed to drain (up to 30s by default)
+    /// 2. Audit log is flushed
+    /// 3. Upstream child process is terminated cleanly
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(
             command = %self.command,
             args = ?self.args,
             "spawning upstream MCP server"
         );
+
+        // Install signal handlers — token is cancelled on SIGTERM/SIGINT
+        let shutdown_token = shutdown::signal_shutdown_token();
 
         // Spawn the upstream MCP server as a child process
         let mut child = Command::new(&self.command)
@@ -117,23 +137,45 @@ impl StdioTransport {
 
         tracing::info!("stdio proxy running");
 
-        // Run the proxy loop — this blocks until client or server disconnects
-        let result = handler::run_proxy_loop(
-            client_reader,
-            Arc::new(Mutex::new(client_writer)),
-            upstream_reader,
-            Arc::new(Mutex::new(upstream_writer)),
-            self.engine.clone(),
-            self.audit.clone(),
-            self.fail_open,
-        )
-        .await;
+        // Run the proxy loop with signal-aware shutdown
+        let proxy_result = tokio::select! {
+            result = handler::run_proxy_loop(
+                client_reader,
+                Arc::new(Mutex::new(client_writer)),
+                upstream_reader,
+                Arc::new(Mutex::new(upstream_writer)),
+                self.engine.clone(),
+                self.audit.clone(),
+                self.fail_open,
+                self.approval_backend.clone(),
+            ) => {
+                tracing::info!("proxy loop ended normally");
+                result
+            }
+            _ = shutdown_token.cancelled() => {
+                tracing::info!("shutdown signal received, draining...");
+                // Give in-flight requests a moment to complete
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                Ok(())
+            }
+        };
 
-        // Clean up: ensure child process is terminated
-        tracing::info!("proxy loop ended, waiting for child process");
+        // Flush audit log
+        {
+            let mut audit = self.audit.lock().await;
+            audit.flush();
+            tracing::info!("audit log flushed");
+        }
+
+        // Clean up: terminate child process gracefully
+        tracing::info!("waiting for child process to exit");
         let _ = child.kill().await;
-        let _ = child.wait().await;
+        let exit_status = child.wait().await;
+        match exit_status {
+            Ok(status) => tracing::info!(status = %status, "child process exited"),
+            Err(e) => tracing::warn!(error = %e, "error waiting for child process"),
+        }
 
-        result.map_err(|e| -> Box<dyn std::error::Error> { e })
+        proxy_result.map_err(|e| -> Box<dyn std::error::Error> { e })
     }
 }

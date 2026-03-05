@@ -139,12 +139,20 @@ impl McpMessage {
 /// Returns the denial as a tool result with `isError: true` so the LLM
 /// receives the message as conversation content (not a transport error)
 /// and can relay the policy decision to the user.
+///
+/// Includes a `_kvlar` metadata field with machine-readable error detail
+/// for programmatic consumers.
 pub fn deny_response(
     request_id: serde_json::Value,
     reason: &str,
     tool_name: &str,
     rule_id: &str,
 ) -> McpResponse {
+    let code = if rule_id == "_default_deny" {
+        "POLICY_DEFAULT_DENY"
+    } else {
+        "POLICY_DENY"
+    };
     let message = format!(
         "[BLOCKED BY KVLAR]\n\
          Tool: {tool_name}\n\
@@ -158,7 +166,14 @@ pub fn deny_response(
         id: request_id,
         result: Some(serde_json::json!({
             "content": [{"type": "text", "text": message}],
-            "isError": true
+            "isError": true,
+            "_kvlar": {
+                "code": code,
+                "decision": "deny",
+                "rule_id": rule_id,
+                "reason": reason,
+                "tool": tool_name
+            }
         })),
         error: None,
     }
@@ -168,6 +183,9 @@ pub fn deny_response(
 ///
 /// Returns the denial as a tool result with `isError: true` so the LLM
 /// receives the message as conversation content and can inform the user.
+///
+/// Includes a `_kvlar` metadata field with machine-readable error detail
+/// for programmatic consumers.
 pub fn approval_required_response(
     request_id: serde_json::Value,
     reason: &str,
@@ -187,9 +205,63 @@ pub fn approval_required_response(
         id: request_id,
         result: Some(serde_json::json!({
             "content": [{"type": "text", "text": message}],
-            "isError": true
+            "isError": true,
+            "_kvlar": {
+                "code": "POLICY_APPROVAL_REQUIRED",
+                "decision": "require_approval",
+                "rule_id": rule_id,
+                "reason": reason,
+                "tool": tool_name
+            }
         })),
         error: None,
+    }
+}
+
+/// Creates a JSON-RPC error response for upstream errors
+/// (disconnect, timeout, communication failure).
+///
+/// Uses standard JSON-RPC error codes:
+/// - -32000: Server error (upstream disconnect/timeout)
+pub fn upstream_error_response(
+    request_id: serde_json::Value,
+    message: &str,
+) -> McpResponse {
+    McpResponse {
+        jsonrpc: "2.0".into(),
+        id: request_id,
+        result: None,
+        error: Some(McpError {
+            code: -32000,
+            message: format!("[KVLAR] Upstream error: {}", message),
+            data: Some(serde_json::json!({
+                "_kvlar": {
+                    "code": "UPSTREAM_ERROR",
+                    "reason": message
+                }
+            })),
+        }),
+    }
+}
+
+/// Creates a JSON-RPC error response for malformed/unparseable messages.
+///
+/// Uses standard JSON-RPC error code -32700 (Parse error).
+pub fn parse_error_response(message: &str) -> McpResponse {
+    McpResponse {
+        jsonrpc: "2.0".into(),
+        id: serde_json::json!(null),
+        result: None,
+        error: Some(McpError {
+            code: -32700,
+            message: format!("[KVLAR] Parse error: {}", message),
+            data: Some(serde_json::json!({
+                "_kvlar": {
+                    "code": "PARSE_ERROR",
+                    "reason": message
+                }
+            })),
+        }),
     }
 }
 
@@ -297,6 +369,28 @@ mod tests {
         assert!(text.contains("bash is not allowed"));
         assert!(text.contains("deny-shell"));
         assert!(text.contains("Tool: bash"));
+
+        // Verify structured metadata
+        let kvlar = &result["_kvlar"];
+        assert_eq!(kvlar["code"], "POLICY_DENY");
+        assert_eq!(kvlar["decision"], "deny");
+        assert_eq!(kvlar["rule_id"], "deny-shell");
+        assert_eq!(kvlar["reason"], "bash is not allowed");
+        assert_eq!(kvlar["tool"], "bash");
+    }
+
+    #[test]
+    fn test_deny_response_default_deny() {
+        let resp = deny_response(
+            serde_json::json!(1),
+            "no matching rule",
+            "dangerous_tool",
+            "_default_deny",
+        );
+        let result = resp.result.unwrap();
+        let kvlar = &result["_kvlar"];
+        assert_eq!(kvlar["code"], "POLICY_DEFAULT_DENY");
+        assert_eq!(kvlar["rule_id"], "_default_deny");
     }
 
     #[test]
@@ -314,6 +408,14 @@ mod tests {
         assert!(text.contains("APPROVAL REQUIRED"));
         assert!(text.contains("email requires approval"));
         assert!(text.contains("approve-email"));
+
+        // Verify structured metadata
+        let kvlar = &result["_kvlar"];
+        assert_eq!(kvlar["code"], "POLICY_APPROVAL_REQUIRED");
+        assert_eq!(kvlar["decision"], "require_approval");
+        assert_eq!(kvlar["rule_id"], "approve-email");
+        assert_eq!(kvlar["reason"], "email requires approval");
+        assert_eq!(kvlar["tool"], "send_email");
     }
 
     #[test]

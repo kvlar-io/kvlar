@@ -56,6 +56,11 @@ pub struct ProxyConfig {
     /// Only used when transport = stdio.
     #[serde(default)]
     pub upstream_args: Vec<String>,
+
+    /// Health check endpoint address (e.g., "127.0.0.1:9101").
+    /// Only used in TCP mode. Set to enable `GET /health` liveness probe.
+    #[serde(default)]
+    pub health_addr: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -75,6 +80,7 @@ impl Default for ProxyConfig {
             transport: TransportMode::default(),
             upstream_command: None,
             upstream_args: Vec::new(),
+            health_addr: None,
         }
     }
 }
