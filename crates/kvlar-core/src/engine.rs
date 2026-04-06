@@ -8,7 +8,9 @@ use regex::Regex;
 use crate::action::Action;
 use crate::decision::Decision;
 use crate::error::KvlarError;
-use crate::policy::{Condition, ConditionOperator, DefaultOutcome, Effect, MatchCriteria, Policy, Rule};
+use crate::policy::{
+    Condition, ConditionOperator, DefaultOutcome, Effect, MatchCriteria, Policy, Rule,
+};
 
 /// Characters that indicate a glob pattern (not a plain string).
 const GLOB_META_CHARS: &[char] = &['*', '?', '['];
@@ -127,7 +129,11 @@ impl Engine {
             // If this policy matched (had rules) but nothing matched, apply its default_outcome
             // A policy with no rules is effectively a pass-through.
             if !policy.rules.is_empty() {
-                match policy.default_outcome.as_ref().unwrap_or(&DefaultOutcome::Deny) {
+                match policy
+                    .default_outcome
+                    .as_ref()
+                    .unwrap_or(&DefaultOutcome::Deny)
+                {
                     DefaultOutcome::Allow => {
                         return Decision::Allow {
                             matched_rule: "_default_allow".into(),
@@ -321,7 +327,9 @@ impl Engine {
                 match cond_val {
                     serde_json::Value::String(domain) => host_in_domain(&host, domain),
                     serde_json::Value::Array(domains) => domains.iter().any(|d| {
-                        d.as_str().map(|domain| host_in_domain(&host, domain)).unwrap_or(false)
+                        d.as_str()
+                            .map(|domain| host_in_domain(&host, domain))
+                            .unwrap_or(false)
                     }),
                     _ => false,
                 }
@@ -332,7 +340,9 @@ impl Engine {
                 match cond_val {
                     serde_json::Value::String(domain) => !host_in_domain(&host, domain),
                     serde_json::Value::Array(domains) => !domains.iter().any(|d| {
-                        d.as_str().map(|domain| host_in_domain(&host, domain)).unwrap_or(false)
+                        d.as_str()
+                            .map(|domain| host_in_domain(&host, domain))
+                            .unwrap_or(false)
                     }),
                     _ => true,
                 }
@@ -700,12 +710,12 @@ rules:
             )
             .unwrap();
 
-        let action =
-            Action::new("tool_call", "read_file", "a").with_param("path", serde_json::json!("/etc/shadow"));
+        let action = Action::new("tool_call", "read_file", "a")
+            .with_param("path", serde_json::json!("/etc/shadow"));
         assert!(engine.evaluate(&action).is_denied());
 
-        let action2 =
-            Action::new("tool_call", "read_file", "a").with_param("path", serde_json::json!("/tmp/safe.txt"));
+        let action2 = Action::new("tool_call", "read_file", "a")
+            .with_param("path", serde_json::json!("/tmp/safe.txt"));
         assert!(engine.evaluate(&action2).is_allowed());
     }
 
@@ -1112,8 +1122,10 @@ rules:
         assert!(engine.evaluate(&action).is_allowed());
 
         // Subdomain → allowed
-        let action2 = Action::new("tool_call", "http", "a")
-            .with_param("url", serde_json::json!("https://api.company.internal/v1/users"));
+        let action2 = Action::new("tool_call", "http", "a").with_param(
+            "url",
+            serde_json::json!("https://api.company.internal/v1/users"),
+        );
         assert!(engine.evaluate(&action2).is_allowed());
 
         // Different domain → denied
@@ -1198,15 +1210,25 @@ rules:
         assert!(engine.evaluate(&Action::new("t", "bash", "a")).is_denied());
 
         // Unknown resource → allowed by default_outcome: allow
-        assert!(engine.evaluate(&Action::new("t", "read_file", "a")).is_allowed());
+        assert!(
+            engine
+                .evaluate(&Action::new("t", "read_file", "a"))
+                .is_allowed()
+        );
     }
 
     #[test]
     fn test_hostname_extraction() {
-        assert_eq!(extract_hostname("https://api.example.com/path"), "api.example.com");
+        assert_eq!(
+            extract_hostname("https://api.example.com/path"),
+            "api.example.com"
+        );
         assert_eq!(extract_hostname("http://example.com:8080/"), "example.com");
         assert_eq!(extract_hostname("example.com"), "example.com");
-        assert_eq!(extract_hostname("https://UPPER.CASE.COM/"), "upper.case.com");
+        assert_eq!(
+            extract_hostname("https://UPPER.CASE.COM/"),
+            "upper.case.com"
+        );
     }
 
     #[test]

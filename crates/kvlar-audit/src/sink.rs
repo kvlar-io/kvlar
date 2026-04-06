@@ -109,7 +109,12 @@ async fn flush_batch(client: &reqwest::Client, config: &CloudSinkConfig, batch: 
 
     for url in targets {
         if let Err(e) = post_with_retry(client, url, &config.api_key, &payload).await {
-            eprintln!("[kvlar-audit] Failed to flush {} events to {}: {}", batch.len(), url, e);
+            eprintln!(
+                "[kvlar-audit] Failed to flush {} events to {}: {}",
+                batch.len(),
+                url,
+                e
+            );
         }
     }
 }
@@ -179,7 +184,7 @@ mod tests {
         for i in 0..10 {
             let event = AuditEvent::new(
                 "tool_call",
-                &format!("resource-{}", i),
+                format!("resource-{}", i),
                 "agent-1",
                 EventOutcome::Allowed,
                 "test-rule",

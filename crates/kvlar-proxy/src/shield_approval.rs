@@ -81,11 +81,7 @@ impl ApprovalBackend for ShieldApprovalBackend {
         &self,
         request: &ApprovalRequest,
     ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<ApprovalResponse, ApprovalError>>
-                + Send
-                + '_,
-        >,
+        Box<dyn std::future::Future<Output = Result<ApprovalResponse, ApprovalError>> + Send + '_>,
     > {
         let shield_url = self.shield_url.clone();
         let api_key = self.api_key.clone();
@@ -112,9 +108,7 @@ impl ApprovalBackend for ShieldApprovalBackend {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| {
-                    ApprovalError::Backend(format!("failed to create escalation: {e}"))
-                })?;
+                .map_err(|e| ApprovalError::Backend(format!("failed to create escalation: {e}")))?;
 
             if !create_resp.status().is_success() {
                 return Err(ApprovalError::Backend(format!(
@@ -172,14 +166,12 @@ impl ApprovalBackend for ShieldApprovalBackend {
                     continue;
                 }
 
-                let status_body: serde_json::Value =
-                    poll_resp.json().await.map_err(|e| {
-                        ApprovalError::Backend(format!("failed to parse poll response: {e}"))
-                    })?;
+                let status_body: serde_json::Value = poll_resp.json().await.map_err(|e| {
+                    ApprovalError::Backend(format!("failed to parse poll response: {e}"))
+                })?;
 
                 let status = status_body["status"].as_str().unwrap_or("pending");
-                let decision_reason =
-                    status_body["decisionReason"].as_str().map(str::to_string);
+                let decision_reason = status_body["decisionReason"].as_str().map(str::to_string);
 
                 match status {
                     "approved" => {
@@ -276,11 +268,8 @@ mod tests {
 
     #[test]
     fn test_url_trailing_slash_stripped() {
-        let backend = ShieldApprovalBackend::new(
-            "https://app.kvlar.io/",
-            "key",
-            Duration::from_secs(60),
-        );
+        let backend =
+            ShieldApprovalBackend::new("https://app.kvlar.io/", "key", Duration::from_secs(60));
         assert_eq!(backend.shield_url, "https://app.kvlar.io");
     }
 
@@ -327,8 +316,7 @@ mod tests {
                 Some(r) => format!(r#","decisionReason":"{r}""#),
                 None => String::new(),
             };
-            let poll_body =
-                format!(r#"{{"id":"{id}","status":"{poll_status}"{reason_field}}}"#);
+            let poll_body = format!(r#"{{"id":"{id}","status":"{poll_status}"{reason_field}}}"#);
             send_json(&mut stream, &poll_body).await;
             drop(stream);
         });
@@ -371,8 +359,7 @@ mod tests {
                 Some(r) => format!(r#","decisionReason":"{r}""#),
                 None => String::new(),
             };
-            let body =
-                format!(r#"{{"id":"{id}","status":"{final_status}"{reason_field}}}"#);
+            let body = format!(r#"{{"id":"{id}","status":"{final_status}"{reason_field}}}"#);
             send_json(&mut stream, &body).await;
             drop(stream);
         });
@@ -382,8 +369,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_shield_approved() {
-        let base_url =
-            spawn_mock_shield("esc-001", "approved", None).await;
+        let base_url = spawn_mock_shield("esc-001", "approved", None).await;
 
         let backend = ShieldApprovalBackend::with_poll_interval(
             &base_url,
@@ -404,8 +390,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_shield_denied_with_reason() {
-        let base_url =
-            spawn_mock_shield("esc-002", "denied", Some("Too risky")).await;
+        let base_url = spawn_mock_shield("esc-002", "denied", Some("Too risky")).await;
 
         let backend = ShieldApprovalBackend::with_poll_interval(
             &base_url,
@@ -427,8 +412,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_shield_denied_without_reason_uses_default() {
-        let base_url =
-            spawn_mock_shield("esc-003", "denied", None).await;
+        let base_url = spawn_mock_shield("esc-003", "denied", None).await;
 
         let backend = ShieldApprovalBackend::with_poll_interval(
             &base_url,
@@ -460,21 +444,11 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
 
         tokio::spawn(async move {
-            loop {
-                match listener.accept().await {
-                    Ok((mut stream, _)) => {
-                        let _req = read_http_request(&mut stream).await;
-                        if _req.contains("POST") {
-                            let body = r#"{"id":"esc-timeout","status":"pending"}"#;
-                            send_json(&mut stream, body).await;
-                        } else {
-                            // Always return pending on poll
-                            let body = r#"{"id":"esc-timeout","status":"pending"}"#;
-                            send_json(&mut stream, body).await;
-                        }
-                    }
-                    Err(_) => break,
-                }
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let _req = read_http_request(&mut stream).await;
+                // Always return pending (both POST create and GET poll)
+                let body = r#"{"id":"esc-timeout","status":"pending"}"#;
+                send_json(&mut stream, body).await;
             }
         });
 
@@ -500,8 +474,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_shield_expired_status_treated_as_timeout() {
         // SHIELD can also return "expired" status (the escalation expired on the server side)
-        let base_url =
-            spawn_mock_shield("esc-004", "expired", None).await;
+        let base_url = spawn_mock_shield("esc-004", "expired", None).await;
 
         let backend = ShieldApprovalBackend::with_poll_interval(
             &base_url,
@@ -523,8 +496,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_shield_polls_multiple_times_then_approves() {
         // Serves 2 pending responses, then approved
-        let base_url =
-            spawn_mock_shield_with_pending_first("esc-005", 2, "approved", None).await;
+        let base_url = spawn_mock_shield_with_pending_first("esc-005", 2, "approved", None).await;
 
         let backend = ShieldApprovalBackend::with_poll_interval(
             &base_url,
@@ -643,8 +615,7 @@ rules:
         client_input: &str,
         base_url: &str,
     ) -> (Vec<u8>, Vec<u8>) {
-        let client_reader =
-            BufReader::new(Cursor::new(client_input.as_bytes().to_vec()));
+        let client_reader = BufReader::new(Cursor::new(client_input.as_bytes().to_vec()));
         let client_output = Arc::new(Mutex::new(Vec::<u8>::new()));
         let upstream_reader = BufReader::new(Cursor::new(Vec::<u8>::new()));
         let upstream_output = Arc::new(Mutex::new(Vec::<u8>::new()));
@@ -676,8 +647,7 @@ rules:
 
     #[tokio::test]
     async fn test_proxy_requires_approval_and_shield_approves_forwards_to_upstream() {
-        let base_url =
-            spawn_mock_shield("prx-001", "approved", None).await;
+        let base_url = spawn_mock_shield("prx-001", "approved", None).await;
 
         let msg = r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"send_email","arguments":{"to":"user@example.com"}}}"#;
         let client_input = format!("{}\n", msg);
@@ -704,8 +674,7 @@ rules:
 
     #[tokio::test]
     async fn test_proxy_requires_approval_and_shield_denies_returns_error_to_agent() {
-        let base_url =
-            spawn_mock_shield("prx-002", "denied", Some("Too sensitive")).await;
+        let base_url = spawn_mock_shield("prx-002", "denied", Some("Too sensitive")).await;
 
         let msg = r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"send_email","arguments":{"to":"user@example.com"}}}"#;
         let client_input = format!("{}\n", msg);
@@ -730,8 +699,7 @@ rules:
         );
 
         // The response must be valid JSON-RPC with the correct request ID
-        let resp: serde_json::Value =
-            serde_json::from_str(client_str.trim()).unwrap();
+        let resp: serde_json::Value = serde_json::from_str(client_str.trim()).unwrap();
         assert_eq!(
             resp["id"], 11,
             "response must carry the original request ID"
@@ -749,20 +717,10 @@ rules:
         let port = listener.local_addr().unwrap().port();
 
         tokio::spawn(async move {
-            loop {
-                match listener.accept().await {
-                    Ok((mut stream, _)) => {
-                        let _req = read_http_request(&mut stream).await;
-                        if _req.contains("POST") {
-                            send_json(&mut stream, r#"{"id":"prx-timeout","status":"pending"}"#)
-                                .await;
-                        } else {
-                            send_json(&mut stream, r#"{"id":"prx-timeout","status":"pending"}"#)
-                                .await;
-                        }
-                    }
-                    Err(_) => break,
-                }
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let _req = read_http_request(&mut stream).await;
+                // Always return pending (both POST create and GET poll)
+                send_json(&mut stream, r#"{"id":"prx-timeout","status":"pending"}"#).await;
             }
         });
 
@@ -814,8 +772,7 @@ rules:
             "client must receive a response for timed-out escalation"
         );
         // Response must be valid JSON-RPC
-        let resp: serde_json::Value =
-            serde_json::from_str(client_str.trim()).unwrap();
+        let resp: serde_json::Value = serde_json::from_str(client_str.trim()).unwrap();
         assert_eq!(resp["id"], 12);
         assert_eq!(resp["result"]["isError"], true);
     }

@@ -349,7 +349,9 @@ fn main() {
             dry_run,
             api_key,
             agent_id,
-        } => cmd_wrap(client, config, policy, only, skip, dry_run, api_key, agent_id),
+        } => cmd_wrap(
+            client, config, policy, only, skip, dry_run, api_key, agent_id,
+        ),
         Commands::Unwrap {
             client,
             config,
@@ -630,7 +632,9 @@ fn cmd_proxy(
     let approval_backend: Option<std::sync::Arc<dyn kvlar_proxy::ApprovalBackend>> = {
         let timeout = std::time::Duration::from_secs(approval_timeout);
         if let Some(ref key) = config.kvlar_api_key {
-            let shield_url = config.kvlar_cloud_url.clone()
+            let shield_url = config
+                .kvlar_cloud_url
+                .clone()
                 .unwrap_or_else(|| "https://app.kvlar.io".to_string());
             eprintln!("  Cloud mode: SHIELD escalations at {}", shield_url);
             if let Some(ref id) = config.kvlar_agent_id {
@@ -640,7 +644,8 @@ fn cmd_proxy(
                 shield_url,
                 key.clone(),
                 timeout,
-            )) as std::sync::Arc<dyn kvlar_proxy::ApprovalBackend>)
+            ))
+                as std::sync::Arc<dyn kvlar_proxy::ApprovalBackend>)
         } else {
             approval_webhook.map(|url| {
                 eprintln!("  Approval webhook: {}", url);
@@ -1002,6 +1007,7 @@ fn cmd_init(dir: Option<PathBuf>, template: &str, list: bool, cloud: bool) {
     println!("  Get your API key at https://app.kvlar.io/settings/api-keys");
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_wrap(
     client: Option<McpClient>,
     config: Option<PathBuf>,
@@ -1174,7 +1180,9 @@ fn cmd_wrap(
         if let Some(ref id) = agent_id {
             println!("  Agent ID: {}", id);
         }
-        println!("  Add --api-key and --agent-id to the kvlar proxy args in your MCP client config.");
+        println!(
+            "  Add --api-key and --agent-id to the kvlar proxy args in your MCP client config."
+        );
     } else {
         println!();
         println!("Tip: Connect to SHIELD cloud for centralized policy management:");

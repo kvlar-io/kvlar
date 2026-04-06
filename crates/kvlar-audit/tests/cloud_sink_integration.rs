@@ -51,10 +51,7 @@ where
         .find_map(|line| {
             let lower = line.to_lowercase();
             if lower.starts_with("content-length:") {
-                lower
-                    .split(':')
-                    .nth(1)
-                    .and_then(|v| v.trim().parse().ok())
+                lower.split(':').nth(1).and_then(|v| v.trim().parse().ok())
             } else {
                 None
             }
@@ -141,7 +138,7 @@ async fn test_cloud_sink_forwards_events_to_mock_server() {
     for i in 0..100 {
         let event = AuditEvent::new(
             "tool_call",
-            &format!("resource-{}", i),
+            format!("resource-{}", i),
             "integration-agent",
             EventOutcome::Allowed,
             "allow-all",
@@ -153,7 +150,9 @@ async fn test_cloud_sink_forwards_events_to_mock_server() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let guard = captured.lock().await;
-    let body = guard.as_ref().expect("mock server should have received a request");
+    let body = guard
+        .as_ref()
+        .expect("mock server should have received a request");
 
     // Verify the body is valid JSON with an "events" array
     let parsed: serde_json::Value =
@@ -223,7 +222,7 @@ async fn test_cloud_sink_retries_on_5xx_then_succeeds() {
     for i in 0..100 {
         let event = AuditEvent::new(
             "tool_call",
-            &format!("res-{}", i),
+            format!("res-{}", i),
             "retry-agent",
             EventOutcome::Denied,
             "deny-rule",
@@ -258,7 +257,7 @@ async fn test_cloud_sink_sends_to_both_shield_and_radar() {
     for i in 0..100 {
         let event = AuditEvent::new(
             "tool_call",
-            &format!("resource-{}", i),
+            format!("resource-{}", i),
             "dual-agent",
             EventOutcome::PendingApproval,
             "escalate-rule",
@@ -278,6 +277,9 @@ async fn test_cloud_sink_sends_to_both_shield_and_radar() {
     }
     {
         let guard = radar_captured.lock().await;
-        assert!(guard.is_some(), "RADAR endpoint should have received events");
+        assert!(
+            guard.is_some(),
+            "RADAR endpoint should have received events"
+        );
     }
 }
