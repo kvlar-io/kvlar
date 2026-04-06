@@ -117,7 +117,7 @@ enum Commands {
         health: Option<String>,
 
         /// SHIELD cloud API key (enables cloud mode escalation + audit forwarding).
-        /// Get your API key from https://app.kvlar.io/settings/api-keys
+        /// Get your API key from <https://app.kvlar.io/settings/api-keys>
         #[arg(long)]
         api_key: Option<String>,
 
@@ -184,7 +184,7 @@ enum Commands {
         dry_run: bool,
 
         /// SHIELD cloud API key (written into generated proxy config).
-        /// Get your API key from https://app.kvlar.io/settings/api-keys
+        /// Get your API key from <https://app.kvlar.io/settings/api-keys>
         #[arg(long)]
         api_key: Option<String>,
 

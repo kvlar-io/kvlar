@@ -62,7 +62,7 @@ pub struct ProxyConfig {
     #[serde(default)]
     pub health_addr: Option<String>,
 
-    /// SHIELD cloud base URL (e.g., "https://app.kvlar.io").
+    /// SHIELD cloud base URL (e.g., `https://app.kvlar.io`).
     /// When set with `kvlar_api_key`, enables cloud escalation and audit forwarding.
     #[serde(default)]
     pub kvlar_cloud_url: Option<String>,
@@ -76,7 +76,7 @@ pub struct ProxyConfig {
     #[serde(default)]
     pub kvlar_agent_id: Option<String>,
 
-    /// RADAR cloud base URL (e.g., "https://radar.kvlar.io").
+    /// RADAR cloud base URL (e.g., `https://radar.kvlar.io`).
     /// When set, audit events are also forwarded to RADAR.
     #[serde(default)]
     pub kvlar_radar_url: Option<String>,
